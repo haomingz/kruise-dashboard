@@ -1,0 +1,12 @@
+{
+  "name": "OpenKruise",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Automate application management on Kubernetes.",
+  "homepage": "",
+  "author": "",
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ]
+}
