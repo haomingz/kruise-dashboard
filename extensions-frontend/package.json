@@ -28,13 +28,15 @@
     "@ks-console/locales": "^4.1.1",
     "@ks-console/server": "^4.1.1",
     "@ks-console/shared": "^4.1.1",
-    "@kubed/charts": "^0.2.21",
-    "@kubed/code-editor": "^0.2.21",
-    "@kubed/components": "^0.2.21",
-    "@kubed/diff-viewer": "^0.2.21",
-    "@kubed/hooks": "^0.2.21",
-    "@kubed/icons": "^0.2.21",
-    "@kubed/log-viewer": "^0.2.21"
+    "@kubed/charts": "^0.2.33",
+    "@kubed/code-editor": "^0.2.33",
+    "@kubed/components": "^0.2.33",
+    "@kubed/diff-viewer": "^0.2.33",
+    "@kubed/hooks": "^0.2.33",
+    "@kubed/icons": "^0.2.33",
+    "@kubed/log-viewer": "^0.2.33",
+    "ajv": "^8.17.1",
+    "ajv-keywords": "^5.1.0"
   },
   "devDependencies": {
     "@babel/cli": "^7.15.7",
