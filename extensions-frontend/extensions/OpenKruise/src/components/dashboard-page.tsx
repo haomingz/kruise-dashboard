@@ -1,16 +1,15 @@
-"use client"
-
-import { DashboardHeader } from "@/components/dashboard-header"
-import { DashboardShell } from "@/components/dashboard-shell"
-import { Overview } from "@/components/overview"
-import { RecentActivity } from "@/components/recent-activity"
-import { RolloutVisualization } from "@/components/rollout-visualization"
-import { WorkloadCards } from "@/components/workload-cards"
-import { WorkloadTabs } from "@/components/workload-tabs"
+import { DashboardHeader } from "./dashboard-header"
+import { DashboardShell } from "./dashboard-shell"
+import { Overview } from "./overview"
+import { RecentActivity } from "./recent-activity"
+import { RolloutVisualization } from "./rollout-visualization"
+import { WorkloadCards } from "./workload-cards"
+import { WorkloadTabs } from "./workload-tabs"
 import { Col, Layout, Row } from "antd"
-
+import React from "react"
 export function DashboardPage() {
   return (
+
     <Layout style={{ minHeight: "100vh" }}>
       <DashboardShell>
         <DashboardHeader

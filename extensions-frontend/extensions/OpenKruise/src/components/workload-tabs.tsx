@@ -4,8 +4,9 @@ import {
   LinkOutlined,
   SyncOutlined
 } from "@ant-design/icons"
+import React from "react"
 import { Button, Card, Table, Tabs, Typography } from "antd"
-import Link from "next/link"
+import Link from "antd/es/typography/Link"
 
 const { TabPane } = Tabs
 

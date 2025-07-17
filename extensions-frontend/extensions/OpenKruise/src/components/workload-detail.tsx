@@ -2,7 +2,7 @@ import {
   ArrowUpOutlined,
   CheckCircleTwoTone,
   CodeOutlined,
-  CpuOutlined,
+  // CpuOutlined,
   DeleteOutlined,
   DownOutlined,
   EditOutlined,
@@ -11,8 +11,9 @@ import {
   HddOutlined,
   MoreOutlined,
   ReloadOutlined,
-  ServerOutlined
+  // ServerOutlined
 } from "@ant-design/icons"
+import React from "react"
 import {
   Badge,
   Button,
@@ -222,7 +223,8 @@ export function WorkloadDetail() {
             <div style={{ marginTop: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <Space>
-                  <CpuOutlined style={{ color: '#bfbfbf' }} />
+                  {/* cpu icon */}
+                  <CodeOutlined style={{ color: '#bfbfbf' }} />
                   <Typography.Text>CPU</Typography.Text>
                 </Space>
                 <Typography.Text type="secondary">245m / 1000m</Typography.Text>
@@ -244,7 +246,8 @@ export function WorkloadDetail() {
               <Panel
                 header={
                   <Space>
-                    <ServerOutlined style={{ color: '#bfbfbf' }} />
+                    {/* server icons */}
+                    <ReloadOutlined style={{ color: '#bfbfbf' }} />
                     <Typography.Text strong>web-frontend</Typography.Text>
                     <Typography.Text type="secondary">nginx:1.21.6-alpine</Typography.Text>
                   </Space>
@@ -307,7 +310,8 @@ export function WorkloadDetail() {
           </Card>
           <Card title="Pod Details" bordered>
             <div style={{ textAlign: 'center', padding: 32 }}>
-              <ServerOutlined style={{ fontSize: 32, color: '#bfbfbf' }} />
+              //server
+              <MoreOutlined style={{ fontSize: 32, color: '#bfbfbf' }} />
               <Typography.Title level={5} style={{ marginTop: 16 }}>No pod selected</Typography.Title>
               <Typography.Text type="secondary">Click on a pod in the table above to view its details</Typography.Text>
             </div>

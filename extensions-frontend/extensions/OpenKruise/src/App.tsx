@@ -1,5 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
+import { DashboardPage } from './components/dashboard-page';
 
 const Wrapper = styled.h3`
   margin: 8rem auto;
@@ -7,5 +8,7 @@ const Wrapper = styled.h3`
 `;
 
 export default function App() {
-  return <Wrapper>Automate application management on Kubernetes.</Wrapper>;
+  return <Wrapper>
+    <DashboardPage />
+  </Wrapper>;
 }

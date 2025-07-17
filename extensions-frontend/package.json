@@ -11,7 +11,7 @@
     "build:dll": "ksc build:dll",
     "build:ext": "ksc build:ext",
     "create:ext": "ksc create:ext",
-    "dev": "concurrently -k --raw 'yarn dev:client' 'yarn dev:server'",
+    "dev": "concurrently -k --raw \" yarn dev:client\" \"yarn dev:server\"",
     "dev:client": "ksc dev -u true",
     "dev:server": "ksc-server"
   },
@@ -36,7 +36,9 @@
     "@kubed/icons": "^0.2.33",
     "@kubed/log-viewer": "^0.2.33",
     "ajv": "^8.17.1",
-    "ajv-keywords": "^5.1.0"
+    "ajv-keywords": "^5.1.0",
+    "antd": "^5.26.5",
+    "lucide-react": "^0.525.0"
   },
   "devDependencies": {
     "@babel/cli": "^7.15.7",

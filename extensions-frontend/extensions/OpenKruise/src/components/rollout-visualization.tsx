@@ -5,6 +5,7 @@ import {
   SyncOutlined
 } from "@ant-design/icons"
 import { Badge, Button, Card, Col, Progress, Row, Space, Tabs, Typography } from "antd"
+import React from "react"
 
 const { TabPane } = Tabs
 

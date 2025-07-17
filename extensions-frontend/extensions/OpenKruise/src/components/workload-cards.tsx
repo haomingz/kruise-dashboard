@@ -4,6 +4,7 @@ import {
   DeploymentUnitOutlined,
   NodeIndexOutlined
 } from "@ant-design/icons"
+import React from "react"
 import { Card, Col, Row, Typography } from "antd"
 
 export function WorkloadCards() {
