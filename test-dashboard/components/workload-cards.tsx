@@ -1,59 +1,64 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Boxes, Cpu, Database, Network, GitMerge } from "lucide-react"
+import {
+  AppstoreOutlined,
+  DatabaseOutlined,
+  DeploymentUnitOutlined,
+  NodeIndexOutlined
+} from "@ant-design/icons"
+import { Card, Col, Row, Typography } from "antd"
 
 export function WorkloadCards() {
   return (
-    <>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">CloneSets</CardTitle>
-          <Boxes className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">24</div>
-          <p className="text-xs text-muted-foreground">18 healthy, 6 updating</p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Advanced StatefulSets</CardTitle>
-          <Database className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">12</div>
-          <p className="text-xs text-muted-foreground">10 healthy, 2 scaling</p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Advanced DaemonSets</CardTitle>
-          <Cpu className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">8</div>
-          <p className="text-xs text-muted-foreground">8 healthy</p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">BroadcastJobs</CardTitle>
-          <Network className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">5</div>
-          <p className="text-xs text-muted-foreground">3 completed, 2 running</p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Active Rollouts</CardTitle>
-          <GitMerge className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">7</div>
-          <p className="text-xs text-muted-foreground">4 canary, 2 blue-green, 1 A/B test</p>
-        </CardContent>
-      </Card>
-    </>
+    <Row gutter={[16, 16]}>
+      <Col xs={24} sm={12} md={12} lg={6} xl={6}>
+        <Card>
+          <Row justify="space-between" align="middle">
+            <Typography.Text strong>CloneSets</Typography.Text>
+            <AppstoreOutlined style={{ fontSize: 18, color: '#bfbfbf' }} />
+          </Row>
+          <div style={{ fontSize: 28, fontWeight: 700, marginTop: 8 }}>24</div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>18 healthy, 6 updating</Typography.Text>
+        </Card>
+      </Col>
+      <Col xs={24} sm={12} md={12} lg={6} xl={6}>
+        <Card>
+          <Row justify="space-between" align="middle">
+            <Typography.Text strong>Advanced StatefulSets</Typography.Text>
+            <DatabaseOutlined style={{ fontSize: 18, color: '#bfbfbf' }} />
+          </Row>
+          <div style={{ fontSize: 28, fontWeight: 700, marginTop: 8 }}>12</div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>10 healthy, 2 scaling</Typography.Text>
+        </Card>
+      </Col>
+      <Col xs={24} sm={12} md={12} lg={6} xl={6}>
+        <Card>
+          <Row justify="space-between" align="middle">
+            <Typography.Text strong>Advanced DaemonSets</Typography.Text>
+            <DatabaseOutlined style={{ fontSize: 18, color: '#bfbfbf' }} />
+          </Row>
+          <div style={{ fontSize: 28, fontWeight: 700, marginTop: 8 }}>8</div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>8 healthy</Typography.Text>
+        </Card>
+      </Col>
+      <Col xs={24} sm={12} md={12} lg={6} xl={6}>
+        <Card>
+          <Row justify="space-between" align="middle">
+            <Typography.Text strong>BroadcastJobs</Typography.Text>
+            <DeploymentUnitOutlined style={{ fontSize: 18, color: '#bfbfbf' }} />
+          </Row>
+          <div style={{ fontSize: 28, fontWeight: 700, marginTop: 8 }}>5</div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>3 completed, 2 running</Typography.Text>
+        </Card>
+      </Col>
+      <Col xs={24} sm={12} md={12} lg={6} xl={6}>
+        <Card>
+          <Row justify="space-between" align="middle">
+            <Typography.Text strong>Active Rollouts</Typography.Text>
+            <NodeIndexOutlined style={{ fontSize: 18, color: '#bfbfbf' }} />
+          </Row>
+          <div style={{ fontSize: 28, fontWeight: 700, marginTop: 8 }}>7</div>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>4 canary, 2 blue-green, 1 A/B test</Typography.Text>
+        </Card>
+      </Col>
+    </Row>
   )
 }

@@ -1,74 +1,62 @@
-import type React from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
+import { Card, Col, Progress, Row, Typography } from "antd"
+import React from "react"
 
-interface OverviewProps extends React.HTMLAttributes<HTMLDivElement> {}
+interface OverviewProps extends React.HTMLAttributes<HTMLDivElement> { }
 
 export function Overview({ className, ...props }: OverviewProps) {
   return (
-    <Card className={cn(className)} {...props}>
-      <CardHeader>
-        <CardTitle>Cluster Overview</CardTitle>
-        <CardDescription>Resource utilization across your Kubernetes cluster</CardDescription>
-      </CardHeader>
-      <CardContent className="pl-2">
-        <div className="space-y-8">
-          <div className="space-y-2">
-            <div className="flex items-center">
-              <div className="mr-2 w-14 text-right text-sm font-medium">CPU</div>
-              <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div className="flex h-full w-[65%] bg-primary" />
-              </div>
-              <span className="ml-2 text-sm text-muted-foreground">65%</span>
-            </div>
-            <div className="flex items-center">
-              <div className="mr-2 w-14 text-right text-sm font-medium">Memory</div>
-              <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div className="flex h-full w-[78%] bg-primary" />
-              </div>
-              <span className="ml-2 text-sm text-muted-foreground">78%</span>
-            </div>
-            <div className="flex items-center">
-              <div className="mr-2 w-14 text-right text-sm font-medium">Storage</div>
-              <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div className="flex h-full w-[42%] bg-primary" />
-              </div>
-              <span className="ml-2 text-sm text-muted-foreground">42%</span>
-            </div>
-            <div className="flex items-center">
-              <div className="mr-2 w-14 text-right text-sm font-medium">Network</div>
-              <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div className="flex h-full w-[35%] bg-primary" />
-              </div>
-              <span className="ml-2 text-sm text-muted-foreground">35%</span>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Nodes</div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm">Total</div>
-                <div className="font-medium">12</div>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm">Ready</div>
-                <div className="font-medium">12</div>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Pods</div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm">Total</div>
-                <div className="font-medium">248</div>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm">Running</div>
-                <div className="font-medium">235</div>
-              </div>
-            </div>
-          </div>
+    <Card className={className} {...props} title="Cluster Overview" bordered>
+      <Typography.Text type="secondary">
+        Resource utilization across your Kubernetes cluster
+      </Typography.Text>
+      <div style={{ marginTop: 24 }}>
+        <div style={{ marginBottom: 32 }}>
+          <Row gutter={[16, 16]} align="middle">
+            <Col span={4} style={{ textAlign: "right", fontWeight: 500 }}>CPU</Col>
+            <Col span={16}><Progress percent={65} showInfo={false} /></Col>
+            <Col span={4}><Typography.Text type="secondary">65%</Typography.Text></Col>
+          </Row>
+          <Row gutter={[16, 16]} align="middle">
+            <Col span={4} style={{ textAlign: "right", fontWeight: 500 }}>Memory</Col>
+            <Col span={16}><Progress percent={78} showInfo={false} /></Col>
+            <Col span={4}><Typography.Text type="secondary">78%</Typography.Text></Col>
+          </Row>
+          <Row gutter={[16, 16]} align="middle">
+            <Col span={4} style={{ textAlign: "right", fontWeight: 500 }}>Storage</Col>
+            <Col span={16}><Progress percent={42} showInfo={false} /></Col>
+            <Col span={4}><Typography.Text type="secondary">42%</Typography.Text></Col>
+          </Row>
+          <Row gutter={[16, 16]} align="middle">
+            <Col span={4} style={{ textAlign: "right", fontWeight: 500 }}>Network</Col>
+            <Col span={16}><Progress percent={35} showInfo={false} /></Col>
+            <Col span={4}><Typography.Text type="secondary">35%</Typography.Text></Col>
+          </Row>
         </div>
-      </CardContent>
+        <Row gutter={24}>
+          <Col span={12}>
+            <Typography.Text strong>Nodes</Typography.Text>
+            <Row justify="space-between">
+              <Col>Total</Col>
+              <Col><Typography.Text strong>12</Typography.Text></Col>
+            </Row>
+            <Row justify="space-between">
+              <Col>Ready</Col>
+              <Col><Typography.Text strong>12</Typography.Text></Col>
+            </Row>
+          </Col>
+          <Col span={12}>
+            <Typography.Text strong>Pods</Typography.Text>
+            <Row justify="space-between">
+              <Col>Total</Col>
+              <Col><Typography.Text strong>248</Typography.Text></Col>
+            </Row>
+            <Row justify="space-between">
+              <Col>Running</Col>
+              <Col><Typography.Text strong>235</Typography.Text></Col>
+            </Row>
+          </Col>
+        </Row>
+      </div>
     </Card>
   )
 }

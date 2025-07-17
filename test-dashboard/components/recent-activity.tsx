@@ -1,86 +1,90 @@
-import type React from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
-import { AlertCircle, CheckCircle, Clock, RefreshCw, GitMerge } from "lucide-react"
+import {
+  BranchesOutlined,
+  CheckCircleTwoTone,
+  ClockCircleOutlined,
+  ExclamationCircleTwoTone,
+  SyncOutlined
+} from "@ant-design/icons"
+import { Card, Space, Typography } from "antd"
+import React from "react"
 
-interface RecentActivityProps extends React.HTMLAttributes<HTMLDivElement> {}
+interface RecentActivityProps extends React.HTMLAttributes<HTMLDivElement> { }
 
 export function RecentActivity({ className, ...props }: RecentActivityProps) {
   return (
-    <Card className={cn(className)} {...props}>
-      <CardHeader>
-        <CardTitle>Recent Activity</CardTitle>
-        <CardDescription>Latest events and operations in your cluster</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          <div className="flex items-start gap-4">
-            <div className="mt-0.5 rounded-full bg-green-100 p-1 dark:bg-green-800">
-              <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+    <Card className={className} {...props} title="Recent Activity" bordered>
+      <Typography.Text type="secondary">
+        Latest events and operations in your cluster
+      </Typography.Text>
+      <div style={{ marginTop: 24 }}>
+        <Space direction="vertical" size="large" style={{ width: "100%" }}>
+          <Space align="start" size="middle">
+            <CheckCircleTwoTone twoToneColor="#52c41a" style={{ fontSize: 20, marginTop: 2 }} />
+            <div>
+              <Typography.Text strong>CloneSet web-frontend scaled successfully</Typography.Text>
+              <br />
+              <Typography.Text type="secondary">Replicas: 3 → 5</Typography.Text>
+              <br />
+              <Space size="small">
+                <ClockCircleOutlined style={{ fontSize: 12 }} />
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>2 minutes ago</Typography.Text>
+              </Space>
             </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium leading-none">CloneSet web-frontend scaled successfully</p>
-              <p className="text-sm text-muted-foreground">Replicas: 3 → 5</p>
-              <div className="flex items-center gap-1 pt-1 text-xs text-muted-foreground">
-                <Clock className="h-3 w-3" />
-                <span>2 minutes ago</span>
-              </div>
+          </Space>
+          <Space align="start" size="middle">
+            <SyncOutlined spin style={{ color: "#1890ff", fontSize: 20, marginTop: 2 }} />
+            <div>
+              <Typography.Text strong>In-place update of database-sidecar containers</Typography.Text>
+              <br />
+              <Typography.Text type="secondary">Updated 12 containers across 6 pods</Typography.Text>
+              <br />
+              <Space size="small">
+                <ClockCircleOutlined style={{ fontSize: 12 }} />
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>15 minutes ago</Typography.Text>
+              </Space>
             </div>
-          </div>
-          <div className="flex items-start gap-4">
-            <div className="mt-0.5 rounded-full bg-blue-100 p-1 dark:bg-blue-800">
-              <RefreshCw className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+          </Space>
+          <Space align="start" size="middle">
+            <ExclamationCircleTwoTone twoToneColor="#faad14" style={{ fontSize: 20, marginTop: 2 }} />
+            <div>
+              <Typography.Text strong>PodUnavailableBudget triggered for api-service</Typography.Text>
+              <br />
+              <Typography.Text type="secondary">Prevented eviction of 2 pods to maintain availability</Typography.Text>
+              <br />
+              <Space size="small">
+                <ClockCircleOutlined style={{ fontSize: 12 }} />
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>45 minutes ago</Typography.Text>
+              </Space>
             </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium leading-none">In-place update of database-sidecar containers</p>
-              <p className="text-sm text-muted-foreground">Updated 12 containers across 6 pods</p>
-              <div className="flex items-center gap-1 pt-1 text-xs text-muted-foreground">
-                <Clock className="h-3 w-3" />
-                <span>15 minutes ago</span>
-              </div>
+          </Space>
+          <Space align="start" size="middle">
+            <CheckCircleTwoTone twoToneColor="#52c41a" style={{ fontSize: 20, marginTop: 2 }} />
+            <div>
+              <Typography.Text strong>BroadcastJob image-pull completed</Typography.Text>
+              <br />
+              <Typography.Text type="secondary">Successfully pulled images on all 12 nodes</Typography.Text>
+              <br />
+              <Space size="small">
+                <ClockCircleOutlined style={{ fontSize: 12 }} />
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>1 hour ago</Typography.Text>
+              </Space>
             </div>
-          </div>
-          <div className="flex items-start gap-4">
-            <div className="mt-0.5 rounded-full bg-amber-100 p-1 dark:bg-amber-800">
-              <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+          </Space>
+          <Space align="start" size="middle">
+            <BranchesOutlined style={{ color: "#1890ff", fontSize: 20, marginTop: 2 }} />
+            <div>
+              <Typography.Text strong>Canary rollout progressed to next batch</Typography.Text>
+              <br />
+              <Typography.Text type="secondary">frontend-canary traffic split: 70% stable, 30% canary</Typography.Text>
+              <br />
+              <Space size="small">
+                <ClockCircleOutlined style={{ fontSize: 12 }} />
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>30 minutes ago</Typography.Text>
+              </Space>
             </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium leading-none">PodUnavailableBudget triggered for api-service</p>
-              <p className="text-sm text-muted-foreground">Prevented eviction of 2 pods to maintain availability</p>
-              <div className="flex items-center gap-1 pt-1 text-xs text-muted-foreground">
-                <Clock className="h-3 w-3" />
-                <span>45 minutes ago</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-start gap-4">
-            <div className="mt-0.5 rounded-full bg-green-100 p-1 dark:bg-green-800">
-              <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium leading-none">BroadcastJob image-pull completed</p>
-              <p className="text-sm text-muted-foreground">Successfully pulled images on all 12 nodes</p>
-              <div className="flex items-center gap-1 pt-1 text-xs text-muted-foreground">
-                <Clock className="h-3 w-3" />
-                <span>1 hour ago</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-start gap-4">
-            <div className="mt-0.5 rounded-full bg-blue-100 p-1 dark:bg-blue-800">
-              <GitMerge className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium leading-none">Canary rollout progressed to next batch</p>
-              <p className="text-sm text-muted-foreground">frontend-canary traffic split: 70% stable, 30% canary</p>
-              <div className="flex items-center gap-1 pt-1 text-xs text-muted-foreground">
-                <Clock className="h-3 w-3" />
-                <span>30 minutes ago</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </CardContent>
+          </Space>
+        </Space>
+      </div>
     </Card>
   )
 }

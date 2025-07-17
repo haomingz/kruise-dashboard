@@ -1,10 +1,12 @@
-import type React from "react"
-interface DashboardShellProps extends React.HTMLAttributes<HTMLDivElement> {}
+import { Layout } from "antd"
+import React from "react"
 
-export function DashboardShell({ children, className, ...props }: DashboardShellProps) {
+interface DashboardShellProps extends React.HTMLAttributes<HTMLDivElement> { }
+
+export function DashboardShell({ children, ...props }: DashboardShellProps) {
   return (
-    <div className="grid gap-8" {...props}>
+    <Layout.Content style={{ padding: 24, minHeight: 280 }} {...props}>
       {children}
-    </div>
+    </Layout.Content>
   )
 }
