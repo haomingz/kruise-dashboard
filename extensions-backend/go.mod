@@ -5,6 +5,7 @@ require (
 	github.com/gin-gonic/gin v1.9.1
 	k8s.io/apimachinery v0.29.2
 	k8s.io/client-go v0.29.2
+	k8s.io/metrics v0.29.2
 )
 
 require (

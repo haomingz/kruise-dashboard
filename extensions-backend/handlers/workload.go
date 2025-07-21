@@ -105,14 +105,14 @@ var kruiseWorkloadGVRs = []schema.GroupVersionResource{
 	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "statefulsets"},
 	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "daemonsets"},
 	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "broadcastjobs"},
-	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "containerrecreaterequests"},
+	// {Group: "apps.kruise.io", Version: "v1alpha1", Resource: "containerrecreaterequests"},
 	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "advancedcronjobs"},
-	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "resourcedistributions"},
-	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "uniteddeployments"},
-	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "sidecarsets"},
-	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "podprobemarkers"},
-	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "imagepulljobs"},
-	{Group: "policy.kruise.io", Version: "v1alpha1", Resource: "podunavailablebudgets"},
+	// {Group: "apps.kruise.io", Version: "v1alpha1", Resource: "resourcedistributions"},
+	// {Group: "apps.kruise.io", Version: "v1alpha1", Resource: "uniteddeployments"},
+	// {Group: "apps.kruise.io", Version: "v1alpha1", Resource: "sidecarsets"},
+	// {Group: "apps.kruise.io", Version: "v1alpha1", Resource: "podprobemarkers"},
+	// {Group: "apps.kruise.io", Version: "v1alpha1", Resource: "imagepulljobs"},
+	// {Group: "policy.kruise.io", Version: "v1alpha1", Resource: "podunavailablebudgets"},
 }
 
 // ListAllWorkloads lists all Kruise workload resources in a namespace

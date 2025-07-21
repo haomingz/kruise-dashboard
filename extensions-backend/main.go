@@ -26,6 +26,8 @@ func main() {
 	// API routes
 	api := r.Group("/api/v1")
 	{
+		// Cluster metrics endpoint
+		api.GET("/cluster/metrics", handlers.GetClusterMetrics)
 		// Rollout management endpoints
 		rollout := api.Group("/rollout")
 		{
