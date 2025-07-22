@@ -1,0 +1,10 @@
+apiVersion: extensions.kubesphere.io/v1alpha1
+kind: APIService
+metadata:
+  name: v1alpha1.kruisedashboard.kubesphere.io
+spec:
+  group: kruisedashboard.kubesphere.io
+  version: v1alpha1
+  url: http://kruisedashboard-api.default.svc:8080
+status:
+  state: Available
