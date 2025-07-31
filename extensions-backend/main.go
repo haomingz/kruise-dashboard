@@ -48,6 +48,7 @@ func main() {
 			workload.GET(":namespace", handlers.ListAllWorkloads)
 			workload.GET(":namespace/:type/:name", handlers.GetWorkload)
 			workload.GET(":namespace/:type", handlers.ListWorkloads)
+			workload.GET(":namespace/:type/:name/pods", handlers.GetWorkloadPods)
 		}
 	}
 

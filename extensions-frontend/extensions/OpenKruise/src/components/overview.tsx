@@ -95,22 +95,22 @@ export function Overview({ className, ...props }: OverviewProps) {
             <Typography.Text strong>Nodes</Typography.Text>
             <Row justify="space-between">
               <Col>Total</Col>
-              <Col><Typography.Text strong>{nodeCount}</Typography.Text></Col>
+              <Col><Typography.Text strong style={{ fontSize: '20px', fontWeight: 700 }}>{nodeCount}</Typography.Text></Col>
             </Row>
             <Row justify="space-between">
               <Col>Ready</Col>
-              <Col><Typography.Text strong>{readyNodes}</Typography.Text></Col>
+              <Col><Typography.Text strong style={{ fontSize: '20px', fontWeight: 700 }}>{readyNodes}</Typography.Text></Col>
             </Row>
           </Col>
           <Col span={12}>
             <Typography.Text strong>Pods</Typography.Text>
             <Row justify="space-between">
               <Col>Total</Col>
-              <Col><Typography.Text strong>{podCount}</Typography.Text></Col>
+              <Col><Typography.Text strong style={{ fontSize: '20px', fontWeight: 700 }}>{podCount}</Typography.Text></Col>
             </Row>
             <Row justify="space-between">
               <Col>Running</Col>
-              <Col><Typography.Text strong>{runningPods}</Typography.Text></Col>
+              <Col><Typography.Text strong style={{ fontSize: '20px', fontWeight: 700 }}>{runningPods}</Typography.Text></Col>
             </Row>
           </Col>
         </Row>

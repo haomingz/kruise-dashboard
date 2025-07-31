@@ -41,6 +41,18 @@ func GetWorkload(c *gin.Context) {
 			Version:  "v1",
 			Resource: "daemonsets",
 		}
+	case "broadcastjob":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
+			Resource: "broadcastjobs",
+		}
+	case "advancedcronjob":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
+			Resource: "advancedcronjobs",
+		}
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported workload type"})
 		return
@@ -53,6 +65,117 @@ func GetWorkload(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, workload)
+}
+
+// GetWorkloadPods returns pods related to a specific workload
+func GetWorkloadPods(c *gin.Context) {
+	namespace := c.Param("namespace")
+	workloadType := c.Param("type")
+	name := c.Param("name")
+
+	// Get the workload first to extract its selector labels
+	var gvr schema.GroupVersionResource
+	switch workloadType {
+	case "deployment":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps",
+			Version:  "v1",
+			Resource: "deployments",
+		}
+	case "cloneset":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
+			Resource: "clonesets",
+		}
+	case "statefulset":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps",
+			Version:  "v1",
+			Resource: "statefulsets",
+		}
+	case "daemonset":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps",
+			Version:  "v1",
+			Resource: "daemonsets",
+		}
+	case "broadcastjob":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
+			Resource: "broadcastjobs",
+		}
+	case "advancedcronjob":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
+			Resource: "advancedcronjobs",
+		}
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported workload type"})
+		return
+	}
+
+	workload, err := GetDynamicClient().Resource(gvr).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Extract selector labels from the workload
+	var labelSelector string
+	workloadObj := workload.Object
+	
+	if spec, ok := workloadObj["spec"].(map[string]interface{}); ok {
+		if selector, ok := spec["selector"].(map[string]interface{}); ok {
+			if matchLabels, ok := selector["matchLabels"].(map[string]interface{}); ok {
+				var labels []string
+				for key, value := range matchLabels {
+					if valueStr, ok := value.(string); ok {
+						labels = append(labels, key+"="+valueStr)
+					}
+				}
+				if len(labels) > 0 {
+					labelSelector = labels[0]
+					for i := 1; i < len(labels); i++ {
+						labelSelector += "," + labels[i]
+					}
+				}
+			}
+		}
+	}
+
+	// If no selector found, try to use workload name as fallback
+	if labelSelector == "" {
+		labelSelector = "app=" + name
+	}
+
+	// Get pods using the label selector
+	podGVR := schema.GroupVersionResource{
+		Group:    "",
+		Version:  "v1",
+		Resource: "pods",
+	}
+
+	pods, err := GetDynamicClient().Resource(podGVR).Namespace(namespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Extract pod items
+	items := make([]interface{}, 0, len(pods.Items))
+	for _, item := range pods.Items {
+		items = append(items, item.Object)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"workload": workload.Object,
+		"pods":     items,
+	})
 }
 
 // ListWorkloads returns a list of workloads by type

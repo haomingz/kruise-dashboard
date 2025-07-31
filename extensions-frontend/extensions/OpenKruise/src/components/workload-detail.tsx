@@ -2,7 +2,6 @@ import {
   ArrowUpOutlined,
   CheckCircleTwoTone,
   CodeOutlined,
-  // CpuOutlined,
   DeleteOutlined,
   DownOutlined,
   EditOutlined,
@@ -10,10 +9,8 @@ import {
   FileTextOutlined,
   HddOutlined,
   MoreOutlined,
-  ReloadOutlined,
-  // ServerOutlined
+  ReloadOutlined
 } from "@ant-design/icons"
-import React from "react"
 import {
   Badge,
   Button,
@@ -27,11 +24,17 @@ import {
   Tabs,
   Typography,
 } from "antd"
+import React from "react"
 
 const { TabPane } = Tabs
 const { Panel } = Collapse
 
 export function WorkloadDetail() {
+  // Define render functions outside of column definitions
+  const renderPodName = (text: string) => <Typography.Text strong>{text}</Typography.Text>
+  const renderActionButton = () => <Button icon={<EllipsisOutlined />} size="small" />
+  const renderEventMessage = (text: string) => <Typography.Text code>{text}</Typography.Text>
+
   // Example data for tables (replace with real data as needed)
   const podsData = [
     {
@@ -80,8 +83,14 @@ export function WorkloadDetail() {
       node: 'worker-3',
     },
   ]
+
   const podsColumns = [
-    { title: 'Name', dataIndex: 'name', key: 'name', render: (text: string) => <Typography.Text strong>{text}</Typography.Text> },
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      render: renderPodName
+    },
     { title: 'Status', dataIndex: 'status', key: 'status' },
     { title: 'Restarts', dataIndex: 'restarts', key: 'restarts' },
     { title: 'Age', dataIndex: 'age', key: 'age' },
@@ -91,7 +100,7 @@ export function WorkloadDetail() {
       title: 'Actions',
       key: 'actions',
       align: 'right' as const,
-      render: () => <Button icon={<EllipsisOutlined />} size="small" />,
+      render: renderActionButton,
     },
   ]
 
@@ -125,12 +134,18 @@ export function WorkloadDetail() {
       type: <Badge color="green" text="Normal" />, reason: 'SuccessfulCreate', age: '2d', from: 'cloneset-controller', message: 'Created pod: web-frontend-4',
     },
   ]
+
   const eventsColumns = [
     { title: 'Type', dataIndex: 'type', key: 'type' },
     { title: 'Reason', dataIndex: 'reason', key: 'reason' },
     { title: 'Age', dataIndex: 'age', key: 'age' },
     { title: 'From', dataIndex: 'from', key: 'from' },
-    { title: 'Message', dataIndex: 'message', key: 'message', render: (text: string) => <Typography.Text code>{text}</Typography.Text> },
+    {
+      title: 'Message',
+      dataIndex: 'message',
+      key: 'message',
+      render: renderEventMessage
+    },
   ]
 
   const menu = (

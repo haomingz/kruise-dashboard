@@ -116,10 +116,10 @@ func GetClusterMetrics(c *gin.Context) {
 	}
 
 	// Placeholder values for resource usage
-	cpuUsage := "65%"     // TODO: Calculate from nodeMetricsList
-	memoryUsage := "78%"  // TODO: Calculate from nodeMetricsList
-	storageUsage := "42%" // TODO: Implement real storage usage
-	networkUsage := "35%" // TODO: Implement real network usage
+	cpuUsage := "65"     // TODO: Calculate from nodeMetricsList
+	memoryUsage := "78"  // TODO: Calculate from nodeMetricsList
+	storageUsage := "42" // TODO: Implement real storage usage
+	networkUsage := "35" // TODO: Implement real network usage
 
 	metrics := ClusterMetrics{
 		CPUUsage:     cpuUsage,

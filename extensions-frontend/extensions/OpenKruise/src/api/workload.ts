@@ -12,17 +12,28 @@ export interface Workload {
     [key: string]: any;
 }
 
-/**
- * List all workloads in a namespace
- */
-export const listAllWorkloads = async (namespace: string): Promise<Workload[]> => {
-    try {
-        const response = await axiosInstance.get(`/workload/${namespace}`);
-        return response.data;
-    } catch (error) {
-        console.error(`Error listing all workloads in namespace ${namespace}:`, error);
-        throw error;
-    }
+// Response structure from the /workload/{namespace} endpoint
+export interface AllWorkloadsResponse {
+    clonesets: any[];
+    statefulsets: any[];
+    daemonsets: any[];
+    broadcastjobs: any[];
+    advancedcronjobs: any[];
+}
+
+export const listAllWorkloads = async (namespace: string) => {
+    const response = await axiosInstance.get(`/workload/${namespace}`);
+    return response.data;
+};
+
+export const getWorkloadDetails = async (namespace: string, type: string, name: string) => {
+    const response = await axiosInstance.get(`/workload/${namespace}/${type}/${name}`);
+    return response.data;
+};
+
+export const getWorkloadWithPods = async (namespace: string, type: string, name: string) => {
+    const response = await axiosInstance.get(`/workload/${namespace}/${type}/${name}/pods`);
+    return response.data;
 };
 
 /**
