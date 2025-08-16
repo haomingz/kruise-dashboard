@@ -49,7 +49,7 @@ export const listWorkloads = async (namespace: string, type: string): Promise<Wo
         console.error(`Error listing workloads of type ${type} in namespace ${namespace}:`, error);
         throw error;
     }
-}; 
+};
 
 export const getWorkloadWithPods = async (namespace: string, type: string, name: string) => {
     try {
@@ -59,4 +59,4 @@ export const getWorkloadWithPods = async (namespace: string, type: string, name:
         console.error(`Error fetching workload ${namespace}/${type}/${name} with pods:`, error);
         throw error;
     }
-}
+} 

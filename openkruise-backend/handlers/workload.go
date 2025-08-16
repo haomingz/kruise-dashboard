@@ -90,8 +90,8 @@ func GetWorkloadPods(c *gin.Context) {
 		}
 	case "statefulset":
 		gvr = schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
+			Group:    "apps.kruise.io",
+			Version:  "v1beta1",
 			Resource: "statefulsets",
 		}
 	case "daemonset":
@@ -126,9 +126,10 @@ func GetWorkloadPods(c *gin.Context) {
 	// Extract selector labels from the workload
 	var labelSelector string
 	workloadObj := workload.Object
-	
+
 	if spec, ok := workloadObj["spec"].(map[string]interface{}); ok {
 		if selector, ok := spec["selector"].(map[string]interface{}); ok {
+			// Handle matchLabels
 			if matchLabels, ok := selector["matchLabels"].(map[string]interface{}); ok {
 				var labels []string
 				for key, value := range matchLabels {
@@ -143,12 +144,70 @@ func GetWorkloadPods(c *gin.Context) {
 					}
 				}
 			}
+
+			// Handle matchExpressions if matchLabels is empty
+			if labelSelector == "" {
+				if matchExpressions, ok := selector["matchExpressions"].([]interface{}); ok {
+					var expressions []string
+					for _, expr := range matchExpressions {
+						if exprMap, ok := expr.(map[string]interface{}); ok {
+							if key, ok := exprMap["key"].(string); ok {
+								if operator, ok := exprMap["operator"].(string); ok {
+									if operator == "In" || operator == "NotIn" {
+										if values, ok := exprMap["values"].([]interface{}); ok {
+											var valueStrs []string
+											for _, val := range values {
+												if valStr, ok := val.(string); ok {
+													valueStrs = append(valueStrs, valStr)
+												}
+											}
+											if len(valueStrs) > 0 {
+												if operator == "In" {
+													expressions = append(expressions, key+" in ("+valueStrs[0]+")")
+												} else {
+													expressions = append(expressions, key+" notin ("+valueStrs[0]+")")
+												}
+											}
+										}
+									} else if operator == "Exists" {
+										expressions = append(expressions, key)
+									} else if operator == "DoesNotExist" {
+										expressions = append(expressions, "!"+key)
+									}
+								}
+							}
+						}
+					}
+					if len(expressions) > 0 {
+						labelSelector = expressions[0]
+						for i := 1; i < len(expressions); i++ {
+							labelSelector += "," + expressions[i]
+						}
+					}
+				}
+			}
 		}
 	}
 
-	// If no selector found, try to use workload name as fallback
+	// If no selector found, use a more specific fallback based on workload type and name
 	if labelSelector == "" {
-		labelSelector = "app=" + name
+		// Use workload-specific label selectors
+		switch workloadType {
+		case "deployment":
+			labelSelector = "app=" + name + ",deployment=" + name
+		case "cloneset":
+			labelSelector = "app=" + name + ",cloneset=" + name
+		case "statefulset":
+			labelSelector = "app=" + name + ",statefulset=" + name
+		case "daemonset":
+			labelSelector = "app=" + name + ",daemonset=" + name
+		case "broadcastjob":
+			labelSelector = "app=" + name + ",broadcastjob=" + name
+		case "advancedcronjob":
+			labelSelector = "app=" + name + ",advancedcronjob=" + name
+		default:
+			labelSelector = "app=" + name
+		}
 	}
 
 	// Get pods using the label selector
@@ -166,10 +225,47 @@ func GetWorkloadPods(c *gin.Context) {
 		return
 	}
 
-	// Extract pod items
-	items := make([]interface{}, 0, len(pods.Items))
+	// Extract pod items and filter by owner reference
+	items := make([]interface{}, 0)
 	for _, item := range pods.Items {
-		items = append(items, item.Object)
+		podObj := item.Object
+
+		// Check if this pod is owned by the specific workload
+		if metadata, ok := podObj["metadata"].(map[string]interface{}); ok {
+			if ownerRefs, ok := metadata["ownerReferences"].([]interface{}); ok {
+				for _, ownerRef := range ownerRefs {
+					if owner, ok := ownerRef.(map[string]interface{}); ok {
+						if ownerName, ok := owner["name"].(string); ok {
+							if ownerName == name {
+								// Check if the owner kind matches the workload type
+								if ownerKind, ok := owner["kind"].(string); ok {
+									expectedKind := ""
+									switch workloadType {
+									case "deployment":
+										expectedKind = "Deployment"
+									case "cloneset":
+										expectedKind = "CloneSet"
+									case "statefulset":
+										expectedKind = "StatefulSet"
+									case "daemonset":
+										expectedKind = "DaemonSet"
+									case "broadcastjob":
+										expectedKind = "BroadcastJob"
+									case "advancedcronjob":
+										expectedKind = "AdvancedCronJob"
+									}
+
+									if ownerKind == expectedKind {
+										items = append(items, podObj)
+										break
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
