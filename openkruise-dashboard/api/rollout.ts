@@ -24,8 +24,18 @@ export interface Rollout {
 }
 
 /**
- * Get rollout status for a specific rollout
+ * Get a specific rollout by namespace and name
  */
+export const getRollout = async (namespace: string, name: string): Promise<any> => {
+    try {
+        const response = await axiosInstance.get(`/rollout/${namespace}/${name}`);
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching rollout ${namespace}/${name}:`, error);
+        throw error;
+    }
+};
+
 export const getRolloutStatus = async (namespace: string, name: string): Promise<RolloutStatus> => {
     try {
         const response = await axiosInstance.get(`/rollout/status/${namespace}/${name}`);
@@ -112,7 +122,7 @@ export const approveRollout = async (namespace: string, name: string): Promise<v
 /**
  * List all rollouts in a namespace
  */
-export const listAllRollouts = async (namespace: string): Promise<Rollout[]> => {
+export const listAllRollouts = async (namespace: string): Promise<{ rollouts: Rollout[], total: number, namespace: string }> => {
     try {
         const response = await axiosInstance.get(`/rollout/list/${namespace}`);
         return response.data;
@@ -131,6 +141,19 @@ export const listActiveRollouts = async (namespace: string): Promise<Rollout[]> 
         return response.data;
     } catch (error) {
         console.error(`Error listing active rollouts in namespace ${namespace}:`, error);
+        throw error;
+    }
+};
+
+/**
+ * List all rollouts in the default namespace
+ */
+export const listDefaultRollouts = async (): Promise<{ rollouts: Rollout[], total: number, namespace: string, apiVersions: string[] }> => {
+    try {
+        const response = await axiosInstance.get(`/rollout/default`);
+        return response.data;
+    } catch (error) {
+        console.error(`Error listing rollouts in default namespace:`, error);
         throw error;
     }
 }; 

@@ -17,6 +17,19 @@ var rolloutGVR = schema.GroupVersionResource{
 	Resource: "rollouts",
 }
 
+// GetRollout returns the complete rollout object
+func GetRollout(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, rollout.Object)
+}
+
 // GetRolloutStatus returns the current status of a rollout
 func GetRolloutStatus(c *gin.Context) {
 	namespace := c.Param("namespace")
@@ -159,17 +172,27 @@ func ApproveRollout(c *gin.Context) {
 // ListAllRollouts lists all rollouts in a namespace
 func ListAllRollouts(c *gin.Context) {
 	namespace := c.Param("namespace")
-	gvr := schema.GroupVersionResource{Group: "rollouts.kruise.io", Version: "v1beta1", Resource: "rollouts"}
-	list, err := GetDynamicClient().Resource(gvr).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+
+	allItems := []interface{}{}
+
+	v1beta1GVR := schema.GroupVersionResource{Group: "rollouts.kruise.io", Version: "v1beta1", Resource: "rollouts"}
+	v1beta1List, err := GetDynamicClient().Resource(v1beta1GVR).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, item := range v1beta1List.Items {
+			allItems = append(allItems, item.Object)
+		}
+	}
+
+	if len(allItems) == 0 && v1beta1List == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list rollouts from both v1beta1 and v1alpha1"})
 		return
 	}
-	items := make([]interface{}, 0, len(list.Items))
-	for _, item := range list.Items {
-		items = append(items, item.Object)
-	}
-	c.JSON(http.StatusOK, items)
+
+	c.JSON(http.StatusOK, gin.H{
+		"rollouts":  allItems,
+		"total":     len(allItems),
+		"namespace": namespace,
+	})
 }
 
 // ListActiveRollouts lists only active rollouts in a namespace
@@ -193,4 +216,36 @@ func ListActiveRollouts(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, active)
+}
+
+func ListDefaultRollouts(c *gin.Context) {
+	allItems := []interface{}{}
+
+	v1beta1GVR := schema.GroupVersionResource{Group: "rollouts.kruise.io", Version: "v1beta1", Resource: "rollouts"}
+	v1beta1List, err := GetDynamicClient().Resource(v1beta1GVR).Namespace("default").List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, item := range v1beta1List.Items {
+			allItems = append(allItems, item.Object)
+		}
+	}
+
+	v1alpha1GVR := schema.GroupVersionResource{Group: "rollouts.kruise.io", Version: "v1alpha1", Resource: "rollouts"}
+	v1alpha1List, err := GetDynamicClient().Resource(v1alpha1GVR).Namespace("default").List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, item := range v1alpha1List.Items {
+			allItems = append(allItems, item.Object)
+		}
+	}
+
+	if len(allItems) == 0 && v1beta1List == nil && v1alpha1List == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list rollouts from both v1beta1 and v1alpha1 in default namespace"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"rollouts":    allItems,
+		"total":       len(allItems),
+		"namespace":   "default",
+		"apiVersions": []string{"v1beta1", "v1alpha1"},
+	})
 }

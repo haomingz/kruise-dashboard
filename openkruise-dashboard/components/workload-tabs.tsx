@@ -1,6 +1,5 @@
 "use client"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -8,9 +7,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CheckCircle, Clock, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import type { Rollout } from "../api/rollout"
-import { listAllRollouts } from "../api/rollout"
-import type { Workload } from "../api/workload"
 import { listAllWorkloads } from "../api/workload"
 
 // Enhanced workload interface to match API response
@@ -41,14 +37,13 @@ export function WorkloadTabs() {
     broadcastjobs: [],
     advancedcronjobs: []
   })
-  const [rollouts, setRollouts] = useState<Rollout[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   // Helper function to calculate age from timestamp
   const calculateAge = (creationTimestamp?: string): string => {
     if (!creationTimestamp) return 'Unknown'
-    
+
     const created = new Date(creationTimestamp)
     const now = new Date()
     const diffMs = now.getTime() - created.getTime()
@@ -114,7 +109,6 @@ export function WorkloadTabs() {
         setLoading(true)
 
         const response = await listAllWorkloads('default')
-        const rolloutsData = await listAllRollouts('default').catch(() => [])
 
         // Transform the workload data properly
         setWorkloads({
@@ -125,7 +119,6 @@ export function WorkloadTabs() {
           broadcastjobs: transformWorkloadData(response.broadcastjobs || [], 'broadcastjob'),
           advancedcronjobs: transformWorkloadData(response.advancedcronjobs || [], 'advancedcronjob')
         })
-        setRollouts(rolloutsData || [])
         setError(null)
       } catch (err) {
         console.error('Error fetching workloads:', err)
@@ -189,8 +182,8 @@ export function WorkloadTabs() {
           {workloadList.map((workload, index) => (
             <TableRow key={`${workload.name}-${index}`}>
               <TableCell className="font-medium">
-                <Link 
-                  href={`/workloads/${workload.workloadType}-${workload.namespace}-${workload.name}`} 
+                <Link
+                  href={`/workloads/${workload.workloadType}-${workload.namespace}-${workload.name}`}
                   className="text-primary hover:underline"
                 >
                   {workload.name}
@@ -222,77 +215,7 @@ export function WorkloadTabs() {
     )
   }
 
-  const renderRolloutTable = () => {
-    if (loading) {
-      return (
-        <div className="flex justify-center items-center py-8">
-          <Loader2 className="h-8 w-8 animate-spin" />
-          <span className="ml-2">Loading rollouts...</span>
-        </div>
-      )
-    }
 
-    if (rollouts.length === 0) {
-      return (
-        <div className="text-center py-8 text-muted-foreground">
-          No rollouts found in the default namespace
-        </div>
-      )
-    }
-
-    return (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Namespace</TableHead>
-            <TableHead>Strategy</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Traffic Split</TableHead>
-            <TableHead>Age</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rollouts.map((rollout, index) => (
-            <TableRow key={`${rollout.name}-${index}`}>
-              <TableCell className="font-medium">
-                <Link href={`/workloads/${rollout.name}`} className="text-primary hover:underline">
-                  {rollout.name}
-                </Link>
-              </TableCell>
-              <TableCell>{rollout.namespace}</TableCell>
-              <TableCell>
-                <Badge variant="outline">Canary</Badge>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center">
-                  {getStatusIcon(rollout.status)}
-                  {rollout.status}
-                </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-[70%] rounded-full bg-green-500"></div>
-                  <div className="h-2 w-[30%] rounded-full bg-blue-500"></div>
-                  <span className="text-xs">70/30</span>
-                </div>
-              </TableCell>
-              <TableCell>2h</TableCell>
-              <TableCell className="text-right">
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href={`/workloads/${rollout.name}`}>
-                    <ExternalLink className="mr-2 h-4 w-4" />
-                    View
-                  </Link>
-                </Button>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    )
-  }
 
   if (error && !loading) {
     return (
@@ -313,7 +236,6 @@ export function WorkloadTabs() {
         <TabsTrigger value="sidecars">SidecarSets ({workloads.sidecars.length})</TabsTrigger>
         <TabsTrigger value="broadcastjobs">BroadcastJobs ({workloads.broadcastjobs.length})</TabsTrigger>
         <TabsTrigger value="advancedcronjobs">Advanced CronJobs ({workloads.advancedcronjobs.length})</TabsTrigger>
-        <TabsTrigger value="rollouts">Rollouts ({rollouts.length})</TabsTrigger>
       </TabsList>
 
       <TabsContent value="clonesets" className="space-y-4">
@@ -396,19 +318,7 @@ export function WorkloadTabs() {
         </Card>
       </TabsContent>
 
-      <TabsContent value="rollouts" className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Kruise Rollouts</CardTitle>
-            <CardDescription>
-              Progressive delivery with advanced deployment strategies and traffic management
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {renderRolloutTable()}
-          </CardContent>
-        </Card>
-      </TabsContent>
+
     </Tabs>
   )
 }

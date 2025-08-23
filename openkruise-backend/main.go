@@ -31,6 +31,7 @@ func main() {
 		// Rollout management endpoints
 		rollout := api.Group("/rollout")
 		{
+			rollout.GET("/:namespace/:name", handlers.GetRollout)
 			rollout.GET("/status/:namespace/:name", handlers.GetRolloutStatus)
 			rollout.GET("/history/:namespace/:name", handlers.GetRolloutHistory)
 			rollout.POST("/pause/:namespace/:name", handlers.PauseRollout)
