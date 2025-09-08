@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -391,4 +393,218 @@ func ListAllWorkloads(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, results)
+}
+
+// ScaleWorkload scales a workload to the specified number of replicas
+func ScaleWorkload(c *gin.Context) {
+	namespace := c.Param("namespace")
+	workloadType := c.Param("type")
+	name := c.Param("name")
+
+	// Parse replicas from query parameter
+	replicasStr := c.Query("replicas")
+	if replicasStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "replicas parameter is required"})
+		return
+	}
+
+	replicas, err := strconv.Atoi(replicasStr)
+	if err != nil || replicas < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "replicas must be a non-negative integer"})
+		return
+	}
+
+	var gvr schema.GroupVersionResource
+	switch workloadType {
+	case "deployment":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps",
+			Version:  "v1",
+			Resource: "deployments",
+		}
+	case "cloneset":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
+			Resource: "clonesets",
+		}
+	case "statefulset":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps",
+			Version:  "v1",
+			Resource: "statefulsets",
+		}
+	case "daemonset":
+		c.JSON(http.StatusBadRequest, gin.H{"error": "DaemonSet cannot be scaled"})
+		return
+	case "broadcastjob":
+		c.JSON(http.StatusBadRequest, gin.H{"error": "BroadcastJob cannot be scaled"})
+		return
+	case "advancedcronjob":
+		c.JSON(http.StatusBadRequest, gin.H{"error": "AdvancedCronJob cannot be scaled"})
+		return
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported workload type"})
+		return
+	}
+
+	// Get the current workload
+	workload, err := GetDynamicClient().Resource(gvr).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Create a patch to update replicas
+	workloadObj := workload.Object
+	if spec, ok := workloadObj["spec"].(map[string]interface{}); ok {
+		spec["replicas"] = int32(replicas)
+	}
+
+	// Apply the update
+	_, err = GetDynamicClient().Resource(gvr).Namespace(namespace).Update(context.TODO(), workload, metav1.UpdateOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":  fmt.Sprintf("Successfully scaled %s %s to %d replicas", workloadType, name, replicas),
+		"replicas": replicas,
+	})
+}
+
+// RestartWorkload restarts a workload by adding an annotation
+func RestartWorkload(c *gin.Context) {
+	namespace := c.Param("namespace")
+	workloadType := c.Param("type")
+	name := c.Param("name")
+
+	var gvr schema.GroupVersionResource
+	switch workloadType {
+	case "deployment":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps",
+			Version:  "v1",
+			Resource: "deployments",
+		}
+	case "cloneset":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
+			Resource: "clonesets",
+		}
+	case "statefulset":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps",
+			Version:  "v1",
+			Resource: "statefulsets",
+		}
+	case "daemonset":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps",
+			Version:  "v1",
+			Resource: "daemonsets",
+		}
+	case "broadcastjob":
+		c.JSON(http.StatusBadRequest, gin.H{"error": "BroadcastJob cannot be restarted"})
+		return
+	case "advancedcronjob":
+		c.JSON(http.StatusBadRequest, gin.H{"error": "AdvancedCronJob cannot be restarted"})
+		return
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported workload type"})
+		return
+	}
+
+	// Get the current workload
+	workload, err := GetDynamicClient().Resource(gvr).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Add restart annotation
+	workloadObj := workload.Object
+	if metadata, ok := workloadObj["metadata"].(map[string]interface{}); ok {
+		if annotations, ok := metadata["annotations"].(map[string]interface{}); ok {
+			annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+		} else {
+			metadata["annotations"] = map[string]interface{}{
+				"kubectl.kubernetes.io/restartedAt": time.Now().Format(time.RFC3339),
+			}
+		}
+	}
+
+	// Apply the update
+	_, err = GetDynamicClient().Resource(gvr).Namespace(namespace).Update(context.TODO(), workload, metav1.UpdateOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": fmt.Sprintf("Successfully restarted %s %s", workloadType, name),
+	})
+}
+
+// DeleteWorkload deletes a workload
+func DeleteWorkload(c *gin.Context) {
+	namespace := c.Param("namespace")
+	workloadType := c.Param("type")
+	name := c.Param("name")
+
+	var gvr schema.GroupVersionResource
+	switch workloadType {
+	case "deployment":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps",
+			Version:  "v1",
+			Resource: "deployments",
+		}
+	case "cloneset":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
+			Resource: "clonesets",
+		}
+	case "statefulset":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps",
+			Version:  "v1",
+			Resource: "statefulsets",
+		}
+	case "daemonset":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps",
+			Version:  "v1",
+			Resource: "daemonsets",
+		}
+	case "broadcastjob":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
+			Resource: "broadcastjobs",
+		}
+	case "advancedcronjob":
+		gvr = schema.GroupVersionResource{
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
+			Resource: "advancedcronjobs",
+		}
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported workload type"})
+		return
+	}
+
+	// Delete the workload
+	err := GetDynamicClient().Resource(gvr).Namespace(namespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": fmt.Sprintf("Successfully deleted %s %s", workloadType, name),
+	})
 }

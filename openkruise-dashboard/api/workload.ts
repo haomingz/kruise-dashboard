@@ -59,4 +59,43 @@ export const getWorkloadWithPods = async (namespace: string, type: string, name:
         console.error(`Error fetching workload ${namespace}/${type}/${name} with pods:`, error);
         throw error;
     }
-} 
+}
+
+/**
+ * Scale a workload to the specified number of replicas
+ */
+export const scaleWorkload = async (namespace: string, type: string, name: string, replicas: number): Promise<{ message: string, replicas: number }> => {
+    try {
+        const response = await axiosInstance.post(`/workload/${namespace}/${type}/${name}/scale?replicas=${replicas}`);
+        return response.data;
+    } catch (error) {
+        console.error(`Error scaling workload ${namespace}/${type}/${name} to ${replicas} replicas:`, error);
+        throw error;
+    }
+};
+
+/**
+ * Restart a workload
+ */
+export const restartWorkload = async (namespace: string, type: string, name: string): Promise<{ message: string }> => {
+    try {
+        const response = await axiosInstance.post(`/workload/${namespace}/${type}/${name}/restart`);
+        return response.data;
+    } catch (error) {
+        console.error(`Error restarting workload ${namespace}/${type}/${name}:`, error);
+        throw error;
+    }
+};
+
+/**
+ * Delete a workload
+ */
+export const deleteWorkload = async (namespace: string, type: string, name: string): Promise<{ message: string }> => {
+    try {
+        const response = await axiosInstance.delete(`/workload/${namespace}/${type}/${name}`);
+        return response.data;
+    } catch (error) {
+        console.error(`Error deleting workload ${namespace}/${type}/${name}:`, error);
+        throw error;
+    }
+}; 

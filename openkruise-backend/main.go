@@ -50,6 +50,9 @@ func main() {
 			workload.GET(":namespace/:type/:name", handlers.GetWorkload)
 			workload.GET(":namespace/:type", handlers.ListWorkloads)
 			workload.GET(":namespace/:type/:name/pods", handlers.GetWorkloadPods)
+			workload.POST(":namespace/:type/:name/scale", handlers.ScaleWorkload)
+			workload.POST(":namespace/:type/:name/restart", handlers.RestartWorkload)
+			workload.DELETE(":namespace/:type/:name", handlers.DeleteWorkload)
 		}
 	}
 

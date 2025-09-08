@@ -3,26 +3,7 @@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {
-  ArrowUpDown,
-  CheckCircle,
-  ChevronDown,
-  Clock,
-  Code,
-  CpuIcon,
-  Edit,
-  ExternalLink,
-  HardDrive,
-  Loader2,
-  MoreHorizontal,
-  RefreshCw,
-  Server,
-  Trash2,
-  XCircle,
-  AlertTriangle,
-} from "lucide-react"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,10 +12,27 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  AlertTriangle,
+  ArrowUpDown,
+  CheckCircle,
+  ChevronDown,
+  Clock,
+  Code,
+  Edit,
+  ExternalLink,
+  Loader2,
+  MoreHorizontal,
+  RefreshCw,
+  Server,
+  Trash2,
+  XCircle
+} from "lucide-react"
+import { useParams, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { getWorkloadWithPods } from "../api/workload"
-import { useParams } from "next/navigation"
+import { deleteWorkload, getWorkloadWithPods, restartWorkload, scaleWorkload } from "../api/workload"
 
 
 interface PodData {
@@ -48,12 +46,16 @@ interface PodData {
 
 export function WorkloadDetail() {
   const params = useParams()
+  const router = useRouter()
   const workloadId = Array.isArray(params.id) ? params.id.join('-') : params.id || ''
 
   const [workloadData, setWorkloadData] = useState<any>(null)
   const [podsData, setPodsData] = useState<PodData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [showScaleDialog, setShowScaleDialog] = useState(false)
+  const [scaleReplicas, setScaleReplicas] = useState<number>(0)
 
   // Parse workloadId to extract type, namespace, and name
   const parseWorkloadId = (id: string) => {
@@ -67,55 +69,121 @@ export function WorkloadDetail() {
     return { type, namespace, name }
   }
 
-  useEffect(() => {
-    const fetchWorkloadData = async () => {
-      try {
-        setLoading(true)
-        const { type, namespace, name } = parseWorkloadId(workloadId)
-        const response = await getWorkloadWithPods(namespace, type, name)
-        setWorkloadData(response.workload)
-        
-        // Transform pods data
-        const transformedPods = (response.pods || []).map((pod: any) => {
-          const metadata = pod.metadata || {}
-          const status = pod.status || {}
-          const spec = pod.spec || {}
+  const fetchWorkloadData = async () => {
+    try {
+      setLoading(true)
+      const { type, namespace, name } = parseWorkloadId(workloadId)
+      const response = await getWorkloadWithPods(namespace, type, name)
+      setWorkloadData(response.workload)
 
-          // Calculate restart count
-          const containerStatuses = status.containerStatuses || []
-          const restartCount = containerStatuses.reduce((total: number, container: any) => {
-            return total + (container.restartCount || 0)
-          }, 0)
+      // Transform pods data
+      const transformedPods = (response.pods || []).map((pod: any) => {
+        const metadata = pod.metadata || {}
+        const status = pod.status || {}
+        const spec = pod.spec || {}
 
-          return {
-            name: metadata.name || 'Unknown',
-            status: status.phase || 'Unknown',
-            restarts: restartCount,
-            age: calculateAge(metadata.creationTimestamp),
-            ip: status.podIP || 'N/A',
-            node: spec.nodeName || 'N/A',
-          }
-        })
-        
-        setPodsData(transformedPods)
-        setError(null)
-      } catch (err) {
-        console.error('Error fetching workload data:', err)
-        setError('Failed to fetch workload data')
-      } finally {
-        setLoading(false)
-      }
+        // Calculate restart count
+        const containerStatuses = status.containerStatuses || []
+        const restartCount = containerStatuses.reduce((total: number, container: any) => {
+          return total + (container.restartCount || 0)
+        }, 0)
+
+        return {
+          name: metadata.name || 'Unknown',
+          status: status.phase || 'Unknown',
+          restarts: restartCount,
+          age: calculateAge(metadata.creationTimestamp),
+          ip: status.podIP || 'N/A',
+          node: spec.nodeName || 'N/A',
+        }
+      })
+
+      setPodsData(transformedPods)
+      setError(null)
+    } catch (err) {
+      console.error('Error fetching workload data:', err)
+      setError('Failed to fetch workload data')
+    } finally {
+      setLoading(false)
     }
+  }
 
+  useEffect(() => {
     if (workloadId) {
       fetchWorkloadData()
     }
   }, [workloadId])
 
+  // Action handlers
+  const handleScale = async () => {
+    if (!workloadData) return
+
+    try {
+      setActionLoading('scale')
+      const { type, namespace, name } = parseWorkloadId(workloadId)
+      await scaleWorkload(namespace, type, name, scaleReplicas)
+
+      // Refresh the workload data
+      await fetchWorkloadData()
+      setShowScaleDialog(false)
+    } catch (err) {
+      console.error('Error scaling workload:', err)
+      setError('Failed to scale workload')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleRestart = async () => {
+    if (!workloadData) return
+
+    try {
+      setActionLoading('restart')
+      const { type, namespace, name } = parseWorkloadId(workloadId)
+      await restartWorkload(namespace, type, name)
+
+      // Refresh the workload data
+      await fetchWorkloadData()
+    } catch (err) {
+      console.error('Error restarting workload:', err)
+      setError('Failed to restart workload')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!workloadData) return
+
+    if (!confirm(`Are you sure you want to delete this ${parseWorkloadId(workloadId).type}? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      setActionLoading('delete')
+      const { type, namespace, name } = parseWorkloadId(workloadId)
+      await deleteWorkload(namespace, type, name)
+
+      // Navigate back to workloads list
+      router.push('/workloads')
+    } catch (err) {
+      console.error('Error deleting workload:', err)
+      setError('Failed to delete workload')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleViewYAML = () => {
+    // This will be handled by the existing YAML tab
+    // We could also open in a new window or copy to clipboard
+    console.log('View YAML clicked')
+  }
+
   // Helper function to calculate age from timestamp
   const calculateAge = (creationTimestamp?: string): string => {
     if (!creationTimestamp) return 'Unknown'
-    
+
     const created = new Date(creationTimestamp)
     const now = new Date()
     const diffMs = now.getTime() - created.getTime()
@@ -236,22 +304,35 @@ export function WorkloadDetail() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
-              <DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setScaleReplicas(workloadData?.spec?.replicas || 0)
+                  setShowScaleDialog(true)
+                }}
+                disabled={actionLoading !== null}
+              >
                 <ArrowUpDown className="mr-2 h-4 w-4" />
-                Scale
+                {actionLoading === 'scale' ? 'Scaling...' : 'Scale'}
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleRestart}
+                disabled={actionLoading !== null}
+              >
                 <RefreshCw className="mr-2 h-4 w-4" />
-                Restart
+                {actionLoading === 'restart' ? 'Restarting...' : 'Restart'}
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={handleViewYAML}>
                 <Code className="mr-2 h-4 w-4" />
                 View YAML
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-red-600">
+              <DropdownMenuItem
+                className="text-red-600"
+                onClick={handleDelete}
+                disabled={actionLoading !== null}
+              >
                 <Trash2 className="mr-2 h-4 w-4" />
-                Delete
+                {actionLoading === 'delete' ? 'Deleting...' : 'Delete'}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -528,6 +609,42 @@ export function WorkloadDetail() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Scale Dialog */}
+      {showScaleDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96">
+            <h3 className="text-lg font-semibold mb-4">Scale Workload</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">
+                Number of Replicas
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={scaleReplicas}
+                onChange={(e) => setScaleReplicas(parseInt(e.target.value) || 0)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowScaleDialog(false)}
+                disabled={actionLoading !== null}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleScale}
+                disabled={actionLoading !== null}
+              >
+                {actionLoading === 'scale' ? 'Scaling...' : 'Scale'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
