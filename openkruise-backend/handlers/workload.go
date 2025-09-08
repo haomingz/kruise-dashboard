@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -338,17 +339,56 @@ var kruiseWorkloadGVRs = []schema.GroupVersionResource{
 func ListAllWorkloads(c *gin.Context) {
 	namespace := c.Param("namespace")
 	results := make(map[string][]interface{})
-	for _, gvr := range kruiseWorkloadGVRs {
-		list, err := GetDynamicClient().Resource(gvr).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
-		if err != nil {
-			results[gvr.Resource] = []interface{}{map[string]interface{}{"error": err.Error()}}
-			continue
-		}
-		items := make([]interface{}, 0, len(list.Items))
-		for _, item := range list.Items {
-			items = append(items, item.Object)
-		}
-		results[gvr.Resource] = items
+
+	// Use a channel to collect results from goroutines
+	type result struct {
+		resource string
+		data     []interface{}
+		err      error
 	}
+
+	resultChan := make(chan result, len(kruiseWorkloadGVRs))
+
+	// Process each workload type concurrently
+	for _, gvr := range kruiseWorkloadGVRs {
+		go func(gvr schema.GroupVersionResource) {
+			// Create a context with timeout for each request
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			list, err := GetDynamicClient().Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
+			if err != nil {
+				resultChan <- result{
+					resource: gvr.Resource,
+					data:     []interface{}{map[string]interface{}{"error": err.Error()}},
+					err:      err,
+				}
+				return
+			}
+
+			items := make([]interface{}, 0, len(list.Items))
+			for _, item := range list.Items {
+				items = append(items, item.Object)
+			}
+
+			resultChan <- result{
+				resource: gvr.Resource,
+				data:     items,
+				err:      nil,
+			}
+		}(gvr)
+	}
+
+	// Collect all results
+	for i := 0; i < len(kruiseWorkloadGVRs); i++ {
+		select {
+		case res := <-resultChan:
+			results[res.resource] = res.data
+		case <-time.After(15 * time.Second): // Overall timeout
+			c.JSON(http.StatusOK, results)
+			return
+		}
+	}
+
 	c.JSON(http.StatusOK, results)
 }
