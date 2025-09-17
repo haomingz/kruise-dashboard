@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // GetWorkload returns a specific workload by type and name
@@ -448,21 +449,8 @@ func ScaleWorkload(c *gin.Context) {
 		return
 	}
 
-	// Get the current workload
-	workload, err := GetDynamicClient().Resource(gvr).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Create a patch to update replicas
-	workloadObj := workload.Object
-	if spec, ok := workloadObj["spec"].(map[string]interface{}); ok {
-		spec["replicas"] = int32(replicas)
-	}
-
-	// Apply the update
-	_, err = GetDynamicClient().Resource(gvr).Namespace(namespace).Update(context.TODO(), workload, metav1.UpdateOptions{})
+	patchBytes := []byte(fmt.Sprintf(`{"spec":{"replicas":%d}}`, replicas))
+	_, err := GetDynamicClient().Resource(gvr).Namespace(namespace).Patch(context.TODO(), name, types.MergePatchType, patchBytes, metav1.PatchOptions{}, "scale")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -524,15 +512,37 @@ func RestartWorkload(c *gin.Context) {
 		return
 	}
 
-	// Add restart annotation
+	// Add restart annotation on the pod template metadata to trigger rollout
 	workloadObj := workload.Object
-	if metadata, ok := workloadObj["metadata"].(map[string]interface{}); ok {
-		if annotations, ok := metadata["annotations"].(map[string]interface{}); ok {
-			annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
-		} else {
-			metadata["annotations"] = map[string]interface{}{
-				"kubectl.kubernetes.io/restartedAt": time.Now().Format(time.RFC3339),
-			}
+	var spec map[string]interface{}
+	if s, ok := workloadObj["spec"].(map[string]interface{}); ok {
+		spec = s
+	} else {
+		spec = map[string]interface{}{}
+		workloadObj["spec"] = spec
+	}
+
+	var template map[string]interface{}
+	if t, ok := spec["template"].(map[string]interface{}); ok {
+		template = t
+	} else {
+		template = map[string]interface{}{}
+		spec["template"] = template
+	}
+
+	var tplMeta map[string]interface{}
+	if m, ok := template["metadata"].(map[string]interface{}); ok {
+		tplMeta = m
+	} else {
+		tplMeta = map[string]interface{}{}
+		template["metadata"] = tplMeta
+	}
+
+	if annotations, ok := tplMeta["annotations"].(map[string]interface{}); ok {
+		annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+	} else {
+		tplMeta["annotations"] = map[string]interface{}{
+			"kubectl.kubernetes.io/restartedAt": time.Now().Format(time.RFC3339),
 		}
 	}
 
