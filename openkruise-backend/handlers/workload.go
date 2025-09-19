@@ -450,7 +450,7 @@ func ScaleWorkload(c *gin.Context) {
 	}
 
 	patchBytes := []byte(fmt.Sprintf(`{"spec":{"replicas":%d}}`, replicas))
-	_, err := GetDynamicClient().Resource(gvr).Namespace(namespace).Patch(context.TODO(), name, types.MergePatchType, patchBytes, metav1.PatchOptions{}, "scale")
+	_, err = GetDynamicClient().Resource(gvr).Namespace(namespace).Patch(context.TODO(), name, types.MergePatchType, patchBytes, metav1.PatchOptions{}, "scale")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
