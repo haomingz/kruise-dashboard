@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CheckCircle, Clock, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react"
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { listAllWorkloads } from "../api/workload"
 
 // Enhanced workload interface to match API response
@@ -60,13 +60,13 @@ export function WorkloadTabs() {
   }
 
   // Helper function to determine status from workload
-  const getWorkloadStatus = (workload: any): string => {
-    const spec = workload.spec || {}
-    const status = workload.status || {}
+  const getWorkloadStatus = (workload: Record<string, unknown>): string => {
+    const spec = (workload.spec as Record<string, unknown>) || {}
+    const status = (workload.status as Record<string, unknown>) || {}
 
-    const desiredReplicas = spec.replicas || 0
-    const currentReplicas = status.replicas || 0
-    const readyReplicas = status.readyReplicas || 0
+    const desiredReplicas = (spec.replicas as number) || 0
+    const currentReplicas = (status.replicas as number) || 0
+    const readyReplicas = (status.readyReplicas as number) || 0
 
     if (readyReplicas === desiredReplicas && currentReplicas === desiredReplicas) {
       return 'Healthy'
@@ -78,30 +78,30 @@ export function WorkloadTabs() {
   }
 
   // Transform Kubernetes workload objects to our interface
-  const transformWorkloadData = (workloads: any[], workloadType: string): TransformedWorkload[] => {
+  const transformWorkloadData = useCallback((workloads: Record<string, unknown>[], workloadType: string): TransformedWorkload[] => {
     if (!Array.isArray(workloads)) return []
 
     return workloads.map((workload) => {
-      const metadata = workload.metadata || {}
-      const spec = workload.spec || {}
-      const status = workload.status || {}
+      const metadata = (workload.metadata as Record<string, unknown>) || {}
+      const spec = (workload.spec as Record<string, unknown>) || {}
+      const status = (workload.status as Record<string, unknown>) || {}
 
-      const desiredReplicas = spec.replicas || 0
-      const readyReplicas = status.readyReplicas || 0
-      const image = spec.template?.spec?.containers?.[0]?.image || 'N/A'
+      const desiredReplicas = (spec.replicas as number) || 0
+      const readyReplicas = (status.readyReplicas as number) || 0
+      const image = ((((spec.template as Record<string, unknown>)?.spec as Record<string, unknown>)?.containers as Record<string, unknown>[])?.[0] as Record<string, unknown>)?.image as string || 'N/A'
 
       return {
-        name: metadata.name || 'Unknown',
-        namespace: metadata.namespace || 'default',
+        name: (metadata.name as string) || 'Unknown',
+        namespace: (metadata.namespace as string) || 'default',
         replicas: `${readyReplicas}/${desiredReplicas}`,
         status: getWorkloadStatus(workload),
-        updateStrategy: spec.updateStrategy?.type || 'In-place',
-        age: calculateAge(metadata.creationTimestamp),
+        updateStrategy: ((spec.updateStrategy as Record<string, unknown>)?.type as string) || 'In-place',
+        age: calculateAge(metadata.creationTimestamp as string),
         image,
         workloadType
       }
     })
-  }
+  }, [])
 
   useEffect(() => {
     const fetchWorkloads = async () => {
@@ -131,7 +131,7 @@ export function WorkloadTabs() {
     fetchWorkloads()
     const interval = setInterval(fetchWorkloads, 30000) // Refresh every 30 seconds
     return () => clearInterval(interval)
-  }, [])
+  }, [transformWorkloadData])
 
   const getStatusIcon = (status: string) => {
     switch (status) {

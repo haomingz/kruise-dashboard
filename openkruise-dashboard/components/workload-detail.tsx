@@ -31,7 +31,7 @@ import {
   XCircle
 } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { deleteWorkload, getWorkloadWithPods, restartWorkload, scaleWorkload } from "../api/workload"
 
 
@@ -49,7 +49,7 @@ export function WorkloadDetail() {
   const router = useRouter()
   const workloadId = Array.isArray(params.id) ? params.id.join('-') : params.id || ''
 
-  const [workloadData, setWorkloadData] = useState<any>(null)
+  const [workloadData, setWorkloadData] = useState<Record<string, unknown> | null>(null)
   const [podsData, setPodsData] = useState<PodData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -69,7 +69,7 @@ export function WorkloadDetail() {
     return { type, namespace, name }
   }
 
-  const fetchWorkloadData = async () => {
+  const fetchWorkloadData = useCallback(async () => {
     try {
       setLoading(true)
       const { type, namespace, name } = parseWorkloadId(workloadId)
@@ -77,24 +77,24 @@ export function WorkloadDetail() {
       setWorkloadData(response.workload)
 
       // Transform pods data
-      const transformedPods = (response.pods || []).map((pod: any) => {
-        const metadata = pod.metadata || {}
-        const status = pod.status || {}
-        const spec = pod.spec || {}
+      const transformedPods = (response.pods || []).map((pod: Record<string, unknown>) => {
+        const metadata = (pod.metadata as Record<string, unknown>) || {}
+        const status = (pod.status as Record<string, unknown>) || {}
+        const spec = (pod.spec as Record<string, unknown>) || {}
 
         // Calculate restart count
-        const containerStatuses = status.containerStatuses || []
-        const restartCount = containerStatuses.reduce((total: number, container: any) => {
-          return total + (container.restartCount || 0)
+        const containerStatuses = (status.containerStatuses as Record<string, unknown>[]) || []
+        const restartCount = containerStatuses.reduce((total: number, container: Record<string, unknown>) => {
+          return total + ((container.restartCount as number) || 0)
         }, 0)
 
         return {
-          name: metadata.name || 'Unknown',
-          status: status.phase || 'Unknown',
+          name: (metadata.name as string) || 'Unknown',
+          status: (status.phase as string) || 'Unknown',
           restarts: restartCount,
-          age: calculateAge(metadata.creationTimestamp),
-          ip: status.podIP || 'N/A',
-          node: spec.nodeName || 'N/A',
+          age: calculateAge(metadata.creationTimestamp as string),
+          ip: (status.podIP as string) || 'N/A',
+          node: (spec.nodeName as string) || 'N/A',
         }
       })
 
@@ -106,13 +106,13 @@ export function WorkloadDetail() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [workloadId])
 
   useEffect(() => {
     if (workloadId) {
       fetchWorkloadData()
     }
-  }, [workloadId])
+  }, [workloadId, fetchWorkloadData])
 
   // Action handlers
   const handleScale = async () => {
@@ -205,12 +205,12 @@ export function WorkloadDetail() {
       return { icon: <RefreshCw className="mr-2 h-5 w-5 text-amber-500 animate-spin" />, text: 'Loading' }
     }
 
-    const spec = workloadData.spec || {}
-    const status = workloadData.status || {}
+    const spec = (workloadData.spec as Record<string, unknown>) || {}
+    const status = (workloadData.status as Record<string, unknown>) || {}
 
-    const desiredReplicas = spec.replicas || 0
-    const readyReplicas = status.readyReplicas || 0
-    const replicas = status.replicas || 0
+    const desiredReplicas = (spec.replicas as number) || 0
+    const readyReplicas = (status.readyReplicas as number) || 0
+    const replicas = (status.replicas as number) || 0
 
     if (readyReplicas === desiredReplicas && replicas === desiredReplicas) {
       return { icon: <CheckCircle className="mr-2 h-5 w-5 text-green-500" />, text: 'Healthy' }
@@ -260,17 +260,17 @@ export function WorkloadDetail() {
     )
   }
 
-  const metadata = workloadData.metadata || {}
-  const spec = workloadData.spec || {}
-  const status = workloadData.status || {}
+  const metadata = (workloadData.metadata as Record<string, unknown>) || {}
+  const spec = (workloadData.spec as Record<string, unknown>) || {}
+  const status = (workloadData.status as Record<string, unknown>) || {}
   const { type } = parseWorkloadId(workloadId)
 
-  const desiredReplicas = spec.replicas || 0
-  const readyReplicas = status.readyReplicas || 0
+  const desiredReplicas = (spec.replicas as number) || 0
+  const readyReplicas = (status.readyReplicas as number) || 0
   const workloadStatus = getWorkloadStatus()
 
   // Get container info for display
-  const containers = spec.template?.spec?.containers || []
+  const containers = (((spec.template as Record<string, unknown>)?.spec as Record<string, unknown>)?.containers as Record<string, unknown>[]) || []
   const primaryContainer = containers[0] || {}
 
   return (
@@ -278,12 +278,12 @@ export function WorkloadDetail() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">
-            {type.charAt(0).toUpperCase() + type.slice(1)}: {metadata.name}
+            {type.charAt(0).toUpperCase() + type.slice(1)}: {metadata.name as string}
           </h1>
           <div className="flex items-center gap-2 text-muted-foreground">
-            <span>Namespace: {metadata.namespace}</span>
+            <span>Namespace: {metadata.namespace as string}</span>
             <span>•</span>
-            <span>Created {calculateAge(metadata.creationTimestamp)} ago</span>
+            <span>Created {calculateAge(metadata.creationTimestamp as string)} ago</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -399,13 +399,13 @@ export function WorkloadDetail() {
                     <h3 className="mb-2 font-medium">Basic Information</h3>
                     <div className="grid grid-cols-2 gap-2 rounded-lg border p-3">
                       <div className="text-sm text-muted-foreground">Name</div>
-                      <div className="text-sm">{metadata.name}</div>
+                      <div className="text-sm">{metadata.name as string}</div>
                       <div className="text-sm text-muted-foreground">Namespace</div>
-                      <div className="text-sm">{metadata.namespace}</div>
+                      <div className="text-sm">{metadata.namespace as string}</div>
                       <div className="text-sm text-muted-foreground">Created</div>
-                      <div className="text-sm">{metadata.creationTimestamp || 'Unknown'}</div>
+                      <div className="text-sm">{metadata.creationTimestamp as string || 'Unknown'}</div>
                       <div className="text-sm text-muted-foreground">UID</div>
-                      <div className="text-sm">{metadata.uid || 'Unknown'}</div>
+                      <div className="text-sm">{metadata.uid as string || 'Unknown'}</div>
                     </div>
                   </div>
                   <div>
@@ -416,7 +416,7 @@ export function WorkloadDetail() {
                       <div className="text-sm text-muted-foreground">Ready Replicas</div>
                       <div className="text-sm">{readyReplicas}</div>
                       <div className="text-sm text-muted-foreground">Current Replicas</div>
-                      <div className="text-sm">{status.replicas || 0}</div>
+                      <div className="text-sm">{(status.replicas as number) || 0}</div>
                     </div>
                   </div>
                 </div>
@@ -426,18 +426,18 @@ export function WorkloadDetail() {
                     <div className="grid grid-cols-2 gap-2 rounded-lg border p-3">
                       <div className="text-sm text-muted-foreground">Type</div>
                       <div className="text-sm">
-                        <Badge>{spec.updateStrategy?.type || 'Unknown'}</Badge>
+                        <Badge>{((spec.updateStrategy as Record<string, unknown>)?.type as string) || 'Unknown'}</Badge>
                       </div>
-                      {spec.updateStrategy?.partition !== undefined && (
+                      {((spec.updateStrategy as Record<string, unknown>)?.partition as number) !== undefined && (
                         <>
                           <div className="text-sm text-muted-foreground">Partition</div>
-                          <div className="text-sm">{spec.updateStrategy.partition}</div>
+                          <div className="text-sm">{(spec.updateStrategy as Record<string, unknown>).partition as number}</div>
                         </>
                       )}
-                      {spec.updateStrategy?.maxUnavailable && (
+                      {(spec.updateStrategy as Record<string, unknown>)?.maxUnavailable && (
                         <>
                           <div className="text-sm text-muted-foreground">Max Unavailable</div>
-                          <div className="text-sm">{spec.updateStrategy.maxUnavailable}</div>
+                          <div className="text-sm">{(spec.updateStrategy as Record<string, unknown>).maxUnavailable as string}</div>
                         </>
                       )}
                     </div>
@@ -447,9 +447,9 @@ export function WorkloadDetail() {
                     <div className="rounded-lg border p-3">
                       <div className="mb-2 text-sm text-muted-foreground">Match Labels</div>
                       <div className="flex flex-wrap gap-2">
-                        {spec.selector?.matchLabels && Object.entries(spec.selector.matchLabels).map(([key, value]) => (
+                        {(spec.selector as Record<string, unknown>)?.matchLabels && Object.entries((spec.selector as Record<string, unknown>).matchLabels as Record<string, string>).map(([key, value]) => (
                           <Badge key={key} variant="outline" className="text-xs">
-                            {key}={value as string}
+                            {key}={value}
                           </Badge>
                         ))}
                       </div>
@@ -472,8 +472,8 @@ export function WorkloadDetail() {
                     <div className="flex items-center space-x-4">
                       <Server className="h-5 w-5 text-muted-foreground" />
                       <div>
-                        <p className="text-sm font-medium leading-none">{primaryContainer.name}</p>
-                        <p className="text-sm text-muted-foreground">{primaryContainer.image}</p>
+                        <p className="text-sm font-medium leading-none">{primaryContainer.name as string}</p>
+                        <p className="text-sm text-muted-foreground">{primaryContainer.image as string}</p>
                       </div>
                     </div>
                     <CollapsibleTrigger asChild>
@@ -488,7 +488,7 @@ export function WorkloadDetail() {
                       <div className="rounded-md border px-4 py-3 text-sm">
                         <div className="font-medium">Environment Variables</div>
                         <div className="mt-2 grid grid-cols-2 gap-2">
-                          {primaryContainer.env.map((env: any, index: number) => (
+                          {(primaryContainer.env as Record<string, unknown>[]).map((env: Record<string, unknown>, index: number) => (
                             <>
                               <div key={`key-${index}`} className="text-muted-foreground">{env.name}</div>
                               <div key={`value-${index}`}>{env.value || env.valueFrom ? '[Reference]' : 'N/A'}</div>
@@ -505,26 +505,26 @@ export function WorkloadDetail() {
                           <div className="text-muted-foreground">Requests</div>
                           <div className="text-muted-foreground">Limits</div>
                           <div className="text-muted-foreground">CPU</div>
-                          <div>{primaryContainer.resources.requests?.cpu || 'N/A'}</div>
-                          <div>{primaryContainer.resources.limits?.cpu || 'N/A'}</div>
+                          <div>{((primaryContainer.resources as Record<string, unknown>).requests as Record<string, unknown>)?.cpu as string || 'N/A'}</div>
+                          <div>{((primaryContainer.resources as Record<string, unknown>).limits as Record<string, unknown>)?.cpu as string || 'N/A'}</div>
                           <div className="text-muted-foreground">Memory</div>
-                          <div>{primaryContainer.resources.requests?.memory || 'N/A'}</div>
-                          <div>{primaryContainer.resources.limits?.memory || 'N/A'}</div>
+                          <div>{((primaryContainer.resources as Record<string, unknown>).requests as Record<string, unknown>)?.memory as string || 'N/A'}</div>
+                          <div>{((primaryContainer.resources as Record<string, unknown>).limits as Record<string, unknown>)?.memory as string || 'N/A'}</div>
                         </div>
                       </div>
                     )}
-                    {primaryContainer.ports && primaryContainer.ports.length > 0 && (
+                    {(primaryContainer.ports as Record<string, unknown>[]) && (primaryContainer.ports as Record<string, unknown>[]).length > 0 && (
                       <div className="rounded-md border px-4 py-3 text-sm">
                         <div className="font-medium">Ports</div>
                         <div className="mt-2 grid grid-cols-3 gap-2">
                           <div className="text-muted-foreground">Name</div>
                           <div className="text-muted-foreground">Container Port</div>
                           <div className="text-muted-foreground">Protocol</div>
-                          {primaryContainer.ports.map((port: any, index: number) => (
+                          {(primaryContainer.ports as Record<string, unknown>[]).map((port: Record<string, unknown>, index: number) => (
                             <>
-                              <div key={`name-${index}`}>{port.name || 'N/A'}</div>
-                              <div key={`port-${index}`}>{port.containerPort}</div>
-                              <div key={`protocol-${index}`}>{port.protocol}</div>
+                              <div key={`name-${index}`}>{port.name as string || 'N/A'}</div>
+                              <div key={`port-${index}`}>{port.containerPort as number}</div>
+                              <div key={`protocol-${index}`}>{port.protocol as string}</div>
                             </>
                           ))}
                         </div>

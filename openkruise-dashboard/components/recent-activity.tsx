@@ -1,9 +1,11 @@
-import type React from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
-import { AlertCircle, CheckCircle, Clock, RefreshCw, GitMerge } from "lucide-react"
+import { AlertCircle, CheckCircle, Clock, GitMerge, RefreshCw } from "lucide-react"
+import type React from "react"
 
-interface RecentActivityProps extends React.HTMLAttributes<HTMLDivElement> {}
+interface RecentActivityProps extends React.HTMLAttributes<HTMLDivElement> {
+  className?: string
+}
 
 export function RecentActivity({ className, ...props }: RecentActivityProps) {
   return (

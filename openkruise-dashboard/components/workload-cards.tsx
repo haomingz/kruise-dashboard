@@ -23,7 +23,7 @@ export function WorkloadCards() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const calculateWorkloadStats = (workloads: any[]): WorkloadStats => {
+  const calculateWorkloadStats = (workloads: Record<string, unknown>[]): WorkloadStats => {
     if (!workloads || workloads.length === 0) {
       return { total: 0, healthy: 0, updating: 0 }
     }
@@ -31,13 +31,13 @@ export function WorkloadCards() {
     let healthy = 0
     let updating = 0
 
-    workloads.forEach((workload: any) => {
-      const spec = workload.spec || {}
-      const status = workload.status || {}
+    workloads.forEach((workload: Record<string, unknown>) => {
+      const spec = (workload.spec as Record<string, unknown>) || {}
+      const status = (workload.status as Record<string, unknown>) || {}
 
-      const desiredReplicas = spec.replicas || 0
-      const readyReplicas = status.readyReplicas || 0
-      const updatedReplicas = status.updatedReplicas || 0
+      const desiredReplicas = (spec.replicas as number) || 0
+      const readyReplicas = (status.readyReplicas as number) || 0
+      const updatedReplicas = (status.updatedReplicas as number) || 0
 
       const isFullyReady = readyReplicas === desiredReplicas
       const isFullyUpdated = updatedReplicas === desiredReplicas

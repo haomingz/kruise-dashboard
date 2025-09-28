@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ArrowRight, CheckCircle, ExternalLink, Loader2, RefreshCw, Server, XCircle } from "lucide-react"
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { listAllRollouts } from "../api/rollout"
 
 interface RolloutData {
@@ -31,7 +31,7 @@ interface RolloutData {
 export function RolloutVisualization() {
   const [rollouts, setRollouts] = useState<RolloutData[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [, setError] = useState<string | null>(null)
 
   const calculateAge = (creationTimestamp?: string): string => {
     if (!creationTimestamp) return 'Unknown'
@@ -51,17 +51,18 @@ export function RolloutVisualization() {
     }
   }
 
-  const transformRolloutData = (rollouts: any[]): RolloutData[] => {
+  const transformRolloutData = useCallback((rollouts: Record<string, unknown>[]): RolloutData[] => {
     return rollouts.map((rollout) => {
-      const metadata = rollout.metadata || {}
-      const spec = rollout.spec || {}
-      const status = rollout.status || {}
-      const canaryStatus = status.canaryStatus || {}
+      const metadata = (rollout.metadata as Record<string, unknown>) || {}
+      const spec = (rollout.spec as Record<string, unknown>) || {}
+      const status = (rollout.status as Record<string, unknown>) || {}
+      const canaryStatus = (status.canaryStatus as Record<string, unknown>) || {}
 
       let strategy = 'Unknown'
-      if (spec.strategy?.canary) {
+      const specStrategy = spec.strategy as Record<string, unknown>
+      if (specStrategy?.canary) {
         strategy = 'Canary'
-      } else if (spec.strategy?.blueGreen) {
+      } else if (specStrategy?.blueGreen) {
         strategy = 'Blue-Green'
       }
 
@@ -73,10 +74,11 @@ export function RolloutVisualization() {
       let progressPct = 0
       let trafficPercent = 0
 
-      if (spec.strategy?.canary) {
-        steps = spec.strategy.canary.steps || []
+      if (specStrategy?.canary) {
+        const canaryStrategy = specStrategy.canary as Record<string, unknown>
+        steps = (canaryStrategy.steps as unknown[]) || []
         totalSteps = steps.length
-        stepIndex = canaryStatus.currentStepIndex || 0
+        stepIndex = (canaryStatus.currentStepIndex as number) || 0
         isCompleted = totalSteps > 0 && stepIndex >= totalSteps
         displayStep = totalSteps === 0 ? 0 : (isCompleted ? totalSteps : stepIndex + 1)
         progressPct = totalSteps === 0 ? 0 : Math.min(100, Math.round((displayStep / totalSteps) * 100))
@@ -96,11 +98,12 @@ export function RolloutVisualization() {
         if (isCompleted) {
           trafficPercent = 100
         }
-      } else if (spec.strategy?.blueGreen) {
-        steps = spec.strategy.blueGreen.steps || []
+      } else if (specStrategy?.blueGreen) {
+        const blueGreenStrategy = specStrategy.blueGreen as Record<string, unknown>
+        steps = (blueGreenStrategy.steps as unknown[]) || []
         totalSteps = steps.length
-        const blueGreenStatus = status.blueGreenStatus || {}
-        stepIndex = blueGreenStatus.currentStepIndex || 0
+        const blueGreenStatus = (status.blueGreenStatus as Record<string, unknown>) || {}
+        stepIndex = (blueGreenStatus.currentStepIndex as number) || 0
         isCompleted = totalSteps > 0 && stepIndex >= totalSteps
         displayStep = totalSteps === 0 ? 0 : (isCompleted ? totalSteps : stepIndex + 1)
         progressPct = totalSteps === 0 ? 0 : Math.min(100, Math.round((displayStep / totalSteps) * 100))
@@ -119,24 +122,24 @@ export function RolloutVisualization() {
       }
 
       return {
-        name: metadata.name || 'Unknown',
-        namespace: metadata.namespace || 'default',
+        name: (metadata.name as string) || 'Unknown',
+        namespace: (metadata.namespace as string) || 'default',
         strategy,
-        status: status.phase || 'Unknown',
-        phase: status.phase || 'Unknown',
+        status: (status.phase as string) || 'Unknown',
+        phase: (status.phase as string) || 'Unknown',
         currentStep: stepIndex,
         totalSteps,
-        canaryReplicas: canaryStatus.canaryReplicas || 0,
-        stableReplicas: canaryStatus.stableReplicas || 0,
-        age: calculateAge(metadata.creationTimestamp),
-        workloadRef: spec.workloadRef?.name || 'Unknown',
+        canaryReplicas: (canaryStatus.canaryReplicas as number) || 0,
+        stableReplicas: (canaryStatus.stableReplicas as number) || 0,
+        age: calculateAge(metadata.creationTimestamp as string),
+        workloadRef: ((spec.workloadRef as Record<string, unknown>)?.name as string) || 'Unknown',
         displayStep,
         isCompleted,
         progressPct,
         trafficPercent
       }
     })
-  }
+  }, [])
 
   useEffect(() => {
     const fetchRollouts = async () => {
@@ -157,7 +160,7 @@ export function RolloutVisualization() {
     fetchRollouts()
     const interval = setInterval(fetchRollouts, 30000) // Refresh every 30 seconds
     return () => clearInterval(interval)
-  }, [])
+  }, [transformRolloutData])
 
   const getStatusIcon = (status: string) => {
     switch (status) {

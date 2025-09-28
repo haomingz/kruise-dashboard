@@ -7,7 +7,9 @@ import { useEffect, useState } from "react"
 import type { ClusterMetrics } from "../api/cluster"
 import { getClusterMetrics } from "../api/cluster"
 
-interface OverviewProps extends React.HTMLAttributes<HTMLDivElement> { }
+interface OverviewProps extends React.HTMLAttributes<HTMLDivElement> {
+  className?: string
+}
 
 export function Overview({ className, ...props }: OverviewProps) {
   const [metrics, setMetrics] = useState<ClusterMetrics | null>(null)
