@@ -103,7 +103,7 @@ export function RolloutDetail() {
         }
 
         // Calculate step progress and traffic percentages
-        let steps = []
+        let steps: RolloutStep[] = []
         let totalSteps = 0
         let stepIndex = 0
         let isCompleted = false
@@ -516,7 +516,7 @@ export function RolloutDetail() {
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <span className="text-sm font-medium">UID</span>
-                                        <span className="text-sm font-mono text-xs">{rollout.uid?.slice(0, 8)}...</span>
+                                        <span className="text-xs font-mono">{rollout.uid?.slice(0, 8)}...</span>
                                     </div>
                                     {rollout.message && (
                                         <div className="flex items-center justify-between">

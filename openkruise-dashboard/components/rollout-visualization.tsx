@@ -10,6 +10,12 @@ import Link from "next/link"
 import { useCallback, useEffect, useState } from "react"
 import { listAllRollouts } from "../api/rollout"
 
+interface RolloutStep {
+  traffic?: string | number
+  replicas?: string | number
+  pause?: boolean
+}
+
 interface RolloutData {
   name: string
   namespace: string
@@ -66,7 +72,7 @@ export function RolloutVisualization() {
         strategy = 'Blue-Green'
       }
 
-      let steps = []
+      let steps: RolloutStep[] = []
       let totalSteps = 0
       let stepIndex = 0
       let isCompleted = false
@@ -76,7 +82,7 @@ export function RolloutVisualization() {
 
       if (specStrategy?.canary) {
         const canaryStrategy = specStrategy.canary as Record<string, unknown>
-        steps = (canaryStrategy.steps as unknown[]) || []
+        steps = (canaryStrategy.steps as RolloutStep[]) || []
         totalSteps = steps.length
         stepIndex = (canaryStatus.currentStepIndex as number) || 0
         isCompleted = totalSteps > 0 && stepIndex >= totalSteps
@@ -100,7 +106,7 @@ export function RolloutVisualization() {
         }
       } else if (specStrategy?.blueGreen) {
         const blueGreenStrategy = specStrategy.blueGreen as Record<string, unknown>
-        steps = (blueGreenStrategy.steps as unknown[]) || []
+        steps = (blueGreenStrategy.steps as RolloutStep[]) || []
         totalSteps = steps.length
         const blueGreenStatus = (status.blueGreenStatus as Record<string, unknown>) || {}
         stepIndex = (blueGreenStatus.currentStepIndex as number) || 0

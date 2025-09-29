@@ -115,7 +115,7 @@ export function WorkloadTabs() {
           clonesets: transformWorkloadData(response.clonesets || [], 'cloneset'),
           statefulsets: transformWorkloadData(response.statefulsets || [], 'statefulset'),
           daemonsets: transformWorkloadData(response.daemonsets || [], 'daemonset'),
-          sidecars: transformWorkloadData(response.sidecarsets || [], 'sidecarset'),
+          sidecars: [],
           broadcastjobs: transformWorkloadData(response.broadcastjobs || [], 'broadcastjob'),
           advancedcronjobs: transformWorkloadData(response.advancedcronjobs || [], 'advancedcronjob')
         })

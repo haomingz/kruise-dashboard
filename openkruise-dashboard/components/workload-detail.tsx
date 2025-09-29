@@ -306,7 +306,8 @@ export function WorkloadDetail() {
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
               <DropdownMenuItem
                 onClick={() => {
-                  setScaleReplicas(workloadData?.spec?.replicas || 0)
+                  const spec = (workloadData?.spec as Record<string, unknown>) || {}
+                  setScaleReplicas((spec.replicas as number) || 0)
                   setShowScaleDialog(true)
                 }}
                 disabled={actionLoading !== null}
@@ -370,9 +371,9 @@ export function WorkloadDetail() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between">
-              <Badge>{spec.updateStrategy?.type || 'Unknown'}</Badge>
-              {spec.updateStrategy?.partition !== undefined && (
-                <Badge variant="outline">Partition: {spec.updateStrategy.partition}</Badge>
+              <Badge>{((spec.updateStrategy as Record<string, unknown>)?.type as string) || 'Unknown'}</Badge>
+              {((spec.updateStrategy as Record<string, unknown>)?.partition) !== undefined && (
+                <Badge variant="outline">Partition: {(spec.updateStrategy as Record<string, unknown>).partition as string}</Badge>
               )}
             </div>
           </CardContent>
@@ -434,7 +435,7 @@ export function WorkloadDetail() {
                           <div className="text-sm">{(spec.updateStrategy as Record<string, unknown>).partition as number}</div>
                         </>
                       )}
-                      {(spec.updateStrategy as Record<string, unknown>)?.maxUnavailable && (
+                      {Boolean((spec.updateStrategy as Record<string, unknown>)?.maxUnavailable) && (
                         <>
                           <div className="text-sm text-muted-foreground">Max Unavailable</div>
                           <div className="text-sm">{(spec.updateStrategy as Record<string, unknown>).maxUnavailable as string}</div>
@@ -447,7 +448,7 @@ export function WorkloadDetail() {
                     <div className="rounded-lg border p-3">
                       <div className="mb-2 text-sm text-muted-foreground">Match Labels</div>
                       <div className="flex flex-wrap gap-2">
-                        {(spec.selector as Record<string, unknown>)?.matchLabels && Object.entries((spec.selector as Record<string, unknown>).matchLabels as Record<string, string>).map(([key, value]) => (
+                        {Boolean((spec.selector as Record<string, unknown>)?.matchLabels) && Object.entries((spec.selector as Record<string, unknown>).matchLabels as Record<string, string>).map(([key, value]) => (
                           <Badge key={key} variant="outline" className="text-xs">
                             {key}={value}
                           </Badge>
@@ -484,20 +485,20 @@ export function WorkloadDetail() {
                     </CollapsibleTrigger>
                   </div>
                   <CollapsibleContent className="space-y-2">
-                    {primaryContainer.env && primaryContainer.env.length > 0 && (
+                    {((primaryContainer.env as Record<string, unknown>[])?.length) > 0 && (
                       <div className="rounded-md border px-4 py-3 text-sm">
                         <div className="font-medium">Environment Variables</div>
                         <div className="mt-2 grid grid-cols-2 gap-2">
                           {(primaryContainer.env as Record<string, unknown>[]).map((env: Record<string, unknown>, index: number) => (
                             <>
-                              <div key={`key-${index}`} className="text-muted-foreground">{env.name}</div>
+                              <div key={`key-${index}`} className="text-muted-foreground">{env.name as string}</div>
                               <div key={`value-${index}`}>{env.value || env.valueFrom ? '[Reference]' : 'N/A'}</div>
                             </>
                           ))}
                         </div>
                       </div>
                     )}
-                    {primaryContainer.resources && (
+                    {Boolean(primaryContainer.resources) && (
                       <div className="rounded-md border px-4 py-3 text-sm">
                         <div className="font-medium">Resource Requests & Limits</div>
                         <div className="mt-2 grid grid-cols-3 gap-2">

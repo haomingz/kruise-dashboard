@@ -15,7 +15,13 @@ export interface Workload {
 /**
  * List all workloads in a namespace
  */
-export const listAllWorkloads = async (namespace: string): Promise<Workload[]> => {
+export const listAllWorkloads = async (namespace: string): Promise<{
+    clonesets: Workload[];
+    statefulsets: Workload[];
+    daemonsets: Workload[];
+    broadcastjobs: Workload[];
+    advancedcronjobs: Workload[];
+}> => {
     try {
         const response = await axiosInstance.get(`/workload/${namespace}`);
         return response.data;
