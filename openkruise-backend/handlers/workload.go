@@ -35,14 +35,14 @@ func GetWorkload(c *gin.Context) {
 		}
 	case "statefulset":
 		gvr = schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
+			Group:    "apps.kruise.io",
+			Version:  "v1beta1",
 			Resource: "statefulsets",
 		}
 	case "daemonset":
 		gvr = schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
 			Resource: "daemonsets",
 		}
 	case "broadcastjob":
@@ -100,8 +100,8 @@ func GetWorkloadPods(c *gin.Context) {
 		}
 	case "daemonset":
 		gvr = schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
 			Resource: "daemonsets",
 		}
 	case "broadcastjob":
@@ -299,14 +299,14 @@ func ListWorkloads(c *gin.Context) {
 		}
 	case "statefulset":
 		gvr = schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
+			Group:    "apps.kruise.io",
+			Version:  "v1beta1",
 			Resource: "statefulsets",
 		}
 	case "daemonset":
 		gvr = schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
 			Resource: "daemonsets",
 		}
 	default:
@@ -431,8 +431,8 @@ func ScaleWorkload(c *gin.Context) {
 		}
 	case "statefulset":
 		gvr = schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
+			Group:    "apps.kruise.io",
+			Version:  "v1beta1",
 			Resource: "statefulsets",
 		}
 	case "daemonset":
@@ -484,14 +484,14 @@ func RestartWorkload(c *gin.Context) {
 		}
 	case "statefulset":
 		gvr = schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
+			Group:    "apps.kruise.io",
+			Version:  "v1beta1",
 			Resource: "statefulsets",
 		}
 	case "daemonset":
 		gvr = schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
 			Resource: "daemonsets",
 		}
 	case "broadcastjob":
@@ -580,14 +580,14 @@ func DeleteWorkload(c *gin.Context) {
 		}
 	case "statefulset":
 		gvr = schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
+			Group:    "apps.kruise.io",
+			Version:  "v1beta1",
 			Resource: "statefulsets",
 		}
 	case "daemonset":
 		gvr = schema.GroupVersionResource{
-			Group:    "apps",
-			Version:  "v1",
+			Group:    "apps.kruise.io",
+			Version:  "v1alpha1",
 			Resource: "daemonsets",
 		}
 	case "broadcastjob":
