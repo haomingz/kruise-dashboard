@@ -1,0 +1,651 @@
+"use client"
+
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  AlertTriangle,
+  ArrowUpDown,
+  CheckCircle,
+  ChevronDown,
+  Clock,
+  Code,
+  Edit,
+  ExternalLink,
+  Loader2,
+  MoreHorizontal,
+  RefreshCw,
+  Server,
+  Trash2,
+  XCircle
+} from "lucide-react"
+import { useParams, useRouter } from "next/navigation"
+import { useCallback, useEffect, useState } from "react"
+import { deleteWorkload, getWorkloadWithPods, restartWorkload, scaleWorkload } from "../api/workload"
+
+
+interface PodData {
+  name: string
+  status: string
+  restarts: number
+  age: string
+  ip: string
+  node: string
+}
+
+export function WorkloadDetail() {
+  const params = useParams()
+  const router = useRouter()
+  const workloadId = Array.isArray(params.id) ? params.id.join('-') : params.id || ''
+
+  const [workloadData, setWorkloadData] = useState<Record<string, unknown> | null>(null)
+  const [podsData, setPodsData] = useState<PodData[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [showScaleDialog, setShowScaleDialog] = useState(false)
+  const [scaleReplicas, setScaleReplicas] = useState<number>(0)
+
+  // Parse workloadId to extract type, namespace, and name
+  const parseWorkloadId = (id: string) => {
+    const parts = id.split('-')
+    if (parts.length < 3) {
+      throw new Error('Invalid workload ID format')
+    }
+    const type = parts[0]
+    const namespace = parts[1]
+    const name = parts.slice(2).join('-')
+    return { type, namespace, name }
+  }
+
+  const fetchWorkloadData = useCallback(async () => {
+    try {
+      setLoading(true)
+      const { type, namespace, name } = parseWorkloadId(workloadId)
+      const response = await getWorkloadWithPods(namespace, type, name)
+      setWorkloadData(response.workload)
+
+      // Transform pods data
+      const transformedPods = (response.pods || []).map((pod: Record<string, unknown>) => {
+        const metadata = (pod.metadata as Record<string, unknown>) || {}
+        const status = (pod.status as Record<string, unknown>) || {}
+        const spec = (pod.spec as Record<string, unknown>) || {}
+
+        // Calculate restart count
+        const containerStatuses = (status.containerStatuses as Record<string, unknown>[]) || []
+        const restartCount = containerStatuses.reduce((total: number, container: Record<string, unknown>) => {
+          return total + ((container.restartCount as number) || 0)
+        }, 0)
+
+        return {
+          name: (metadata.name as string) || 'Unknown',
+          status: (status.phase as string) || 'Unknown',
+          restarts: restartCount,
+          age: calculateAge(metadata.creationTimestamp as string),
+          ip: (status.podIP as string) || 'N/A',
+          node: (spec.nodeName as string) || 'N/A',
+        }
+      })
+
+      setPodsData(transformedPods)
+      setError(null)
+    } catch (err) {
+      console.error('Error fetching workload data:', err)
+      setError('Failed to fetch workload data')
+    } finally {
+      setLoading(false)
+    }
+  }, [workloadId])
+
+  useEffect(() => {
+    if (workloadId) {
+      fetchWorkloadData()
+    }
+  }, [workloadId, fetchWorkloadData])
+
+  // Action handlers
+  const handleScale = async () => {
+    if (!workloadData) return
+
+    try {
+      setActionLoading('scale')
+      const { type, namespace, name } = parseWorkloadId(workloadId)
+      await scaleWorkload(namespace, type, name, scaleReplicas)
+
+      // Refresh the workload data
+      await fetchWorkloadData()
+      setShowScaleDialog(false)
+    } catch (err) {
+      console.error('Error scaling workload:', err)
+      setError('Failed to scale workload')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleRestart = async () => {
+    if (!workloadData) return
+
+    try {
+      setActionLoading('restart')
+      const { type, namespace, name } = parseWorkloadId(workloadId)
+      await restartWorkload(namespace, type, name)
+
+      // Refresh the workload data
+      await fetchWorkloadData()
+    } catch (err) {
+      console.error('Error restarting workload:', err)
+      setError('Failed to restart workload')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!workloadData) return
+
+    if (!confirm(`Are you sure you want to delete this ${parseWorkloadId(workloadId).type}? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      setActionLoading('delete')
+      const { type, namespace, name } = parseWorkloadId(workloadId)
+      await deleteWorkload(namespace, type, name)
+
+      // Navigate back to workloads list
+      router.push('/workloads')
+    } catch (err) {
+      console.error('Error deleting workload:', err)
+      setError('Failed to delete workload')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleViewYAML = () => {
+    // This will be handled by the existing YAML tab
+    // We could also open in a new window or copy to clipboard
+    console.log('View YAML clicked')
+  }
+
+  // Helper function to calculate age from timestamp
+  const calculateAge = (creationTimestamp?: string): string => {
+    if (!creationTimestamp) return 'Unknown'
+
+    const created = new Date(creationTimestamp)
+    const now = new Date()
+    const diffMs = now.getTime() - created.getTime()
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+
+    if (diffDays > 0) {
+      return `${diffDays}d`
+    } else if (diffHours > 0) {
+      return `${diffHours}h`
+    } else {
+      return '<1h'
+    }
+  }
+
+  // Helper function to determine workload status
+  const getWorkloadStatus = () => {
+    if (!workloadData || !workloadData.status) {
+      return { icon: <RefreshCw className="mr-2 h-5 w-5 text-amber-500 animate-spin" />, text: 'Loading' }
+    }
+
+    const spec = (workloadData.spec as Record<string, unknown>) || {}
+    const status = (workloadData.status as Record<string, unknown>) || {}
+
+    const desiredReplicas = (spec.replicas as number) || 0
+    const readyReplicas = (status.readyReplicas as number) || 0
+    const replicas = (status.replicas as number) || 0
+
+    if (readyReplicas === desiredReplicas && replicas === desiredReplicas) {
+      return { icon: <CheckCircle className="mr-2 h-5 w-5 text-green-500" />, text: 'Healthy' }
+    } else if (readyReplicas === 0) {
+      return { icon: <XCircle className="mr-2 h-5 w-5 text-red-500" />, text: 'Failed' }
+    } else {
+      return { icon: <RefreshCw className="mr-2 h-5 w-5 text-amber-500 animate-spin" />, text: 'Updating' }
+    }
+  }
+
+  // Helper function to get pod status icon
+  const getPodStatusIcon = (status: string) => {
+    switch (status) {
+      case 'Running':
+        return <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+      case 'Pending':
+        return <Clock className="mr-2 h-4 w-4 text-amber-500" />
+      case 'Failed':
+        return <XCircle className="mr-2 h-4 w-4 text-red-500" />
+      case 'Succeeded':
+        return <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+      default:
+        return <AlertTriangle className="mr-2 h-4 w-4 text-amber-500" />
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="container mx-auto py-6">
+        <div className="flex justify-center items-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <span className="ml-2">Loading workload details...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !workloadData) {
+    return (
+      <div className="container mx-auto py-6">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-red-500 text-sm">{error || 'Failed to load workload data'}</div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  const metadata = (workloadData.metadata as Record<string, unknown>) || {}
+  const spec = (workloadData.spec as Record<string, unknown>) || {}
+  const status = (workloadData.status as Record<string, unknown>) || {}
+  const { type } = parseWorkloadId(workloadId)
+
+  const desiredReplicas = (spec.replicas as number) || 0
+  const readyReplicas = (status.readyReplicas as number) || 0
+  const workloadStatus = getWorkloadStatus()
+
+  // Get container info for display
+  const containers = (((spec.template as Record<string, unknown>)?.spec as Record<string, unknown>)?.containers as Record<string, unknown>[]) || []
+  const primaryContainer = containers[0] || {}
+
+  return (
+    <div className="container mx-auto py-6">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">
+            {type.charAt(0).toUpperCase() + type.slice(1)}: {metadata.name as string}
+          </h1>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <span>Namespace: {metadata.namespace as string}</span>
+            <span>•</span>
+            <span>Created {calculateAge(metadata.creationTimestamp as string)} ago</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm">
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
+          <Button variant="outline" size="sm">
+            <Edit className="mr-2 h-4 w-4" />
+            Edit
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <MoreHorizontal className="h-4 w-4" />
+                <span className="sr-only">More</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => {
+                  const spec = (workloadData?.spec as Record<string, unknown>) || {}
+                  setScaleReplicas((spec.replicas as number) || 0)
+                  setShowScaleDialog(true)
+                }}
+                disabled={actionLoading !== null}
+              >
+                <ArrowUpDown className="mr-2 h-4 w-4" />
+                {actionLoading === 'scale' ? 'Scaling...' : 'Scale'}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleRestart}
+                disabled={actionLoading !== null}
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                {actionLoading === 'restart' ? 'Restarting...' : 'Restart'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleViewYAML}>
+                <Code className="mr-2 h-4 w-4" />
+                View YAML
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-red-600"
+                onClick={handleDelete}
+                disabled={actionLoading !== null}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                {actionLoading === 'delete' ? 'Deleting...' : 'Delete'}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      <div className="mb-6 grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Status</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center">
+              {workloadStatus.icon}
+              <span className="font-medium">{workloadStatus.text}</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Replicas</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <span className="text-2xl font-bold">{readyReplicas}/{desiredReplicas}</span>
+              <Badge variant="outline">
+                {Math.round((readyReplicas / Math.max(desiredReplicas, 1)) * 100)}%
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Update Strategy</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <Badge>{((spec.updateStrategy as Record<string, unknown>)?.type as string) || 'Unknown'}</Badge>
+              {((spec.updateStrategy as Record<string, unknown>)?.partition) !== undefined && (
+                <Badge variant="outline">Partition: {(spec.updateStrategy as Record<string, unknown>).partition as string}</Badge>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs defaultValue="overview" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="pods">Pods ({podsData.length})</TabsTrigger>
+          <TabsTrigger value="yaml">YAML</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Workload Specifications</CardTitle>
+              <CardDescription>Basic configuration and settings</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="mb-2 font-medium">Basic Information</h3>
+                    <div className="grid grid-cols-2 gap-2 rounded-lg border p-3">
+                      <div className="text-sm text-muted-foreground">Name</div>
+                      <div className="text-sm">{metadata.name as string}</div>
+                      <div className="text-sm text-muted-foreground">Namespace</div>
+                      <div className="text-sm">{metadata.namespace as string}</div>
+                      <div className="text-sm text-muted-foreground">Created</div>
+                      <div className="text-sm">{metadata.creationTimestamp as string || 'Unknown'}</div>
+                      <div className="text-sm text-muted-foreground">UID</div>
+                      <div className="text-sm">{metadata.uid as string || 'Unknown'}</div>
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="mb-2 font-medium">Scaling</h3>
+                    <div className="grid grid-cols-2 gap-2 rounded-lg border p-3">
+                      <div className="text-sm text-muted-foreground">Desired Replicas</div>
+                      <div className="text-sm">{desiredReplicas}</div>
+                      <div className="text-sm text-muted-foreground">Ready Replicas</div>
+                      <div className="text-sm">{readyReplicas}</div>
+                      <div className="text-sm text-muted-foreground">Current Replicas</div>
+                      <div className="text-sm">{(status.replicas as number) || 0}</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="mb-2 font-medium">Update Strategy</h3>
+                    <div className="grid grid-cols-2 gap-2 rounded-lg border p-3">
+                      <div className="text-sm text-muted-foreground">Type</div>
+                      <div className="text-sm">
+                        <Badge>{((spec.updateStrategy as Record<string, unknown>)?.type as string) || 'Unknown'}</Badge>
+                      </div>
+                      {((spec.updateStrategy as Record<string, unknown>)?.partition as number) !== undefined && (
+                        <>
+                          <div className="text-sm text-muted-foreground">Partition</div>
+                          <div className="text-sm">{(spec.updateStrategy as Record<string, unknown>).partition as number}</div>
+                        </>
+                      )}
+                      {Boolean((spec.updateStrategy as Record<string, unknown>)?.maxUnavailable) && (
+                        <>
+                          <div className="text-sm text-muted-foreground">Max Unavailable</div>
+                          <div className="text-sm">{(spec.updateStrategy as Record<string, unknown>).maxUnavailable as string}</div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="mb-2 font-medium">Selector</h3>
+                    <div className="rounded-lg border p-3">
+                      <div className="mb-2 text-sm text-muted-foreground">Match Labels</div>
+                      <div className="flex flex-wrap gap-2">
+                        {Boolean((spec.selector as Record<string, unknown>)?.matchLabels) && Object.entries((spec.selector as Record<string, unknown>).matchLabels as Record<string, string>).map(([key, value]) => (
+                          <Badge key={key} variant="outline" className="text-xs">
+                            {key}={value}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {primaryContainer && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Container Specifications</CardTitle>
+                <CardDescription>Container images and configurations</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Collapsible className="space-y-2">
+                  <div className="flex items-center justify-between space-x-4 rounded-lg border p-4">
+                    <div className="flex items-center space-x-4">
+                      <Server className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium leading-none">{primaryContainer.name as string}</p>
+                        <p className="text-sm text-muted-foreground">{primaryContainer.image as string}</p>
+                      </div>
+                    </div>
+                    <CollapsibleTrigger asChild>
+                      <Button variant="ghost" size="sm" className="w-9 p-0">
+                        <ChevronDown className="h-4 w-4" />
+                        <span className="sr-only">Toggle</span>
+                      </Button>
+                    </CollapsibleTrigger>
+                  </div>
+                  <CollapsibleContent className="space-y-2">
+                    {((primaryContainer.env as Record<string, unknown>[])?.length) > 0 && (
+                      <div className="rounded-md border px-4 py-3 text-sm">
+                        <div className="font-medium">Environment Variables</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          {(primaryContainer.env as Record<string, unknown>[]).map((env: Record<string, unknown>, index: number) => (
+                            <>
+                              <div key={`key-${index}`} className="text-muted-foreground">{env.name as string}</div>
+                              <div key={`value-${index}`}>{env.value || env.valueFrom ? '[Reference]' : 'N/A'}</div>
+                            </>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {Boolean(primaryContainer.resources) && (
+                      <div className="rounded-md border px-4 py-3 text-sm">
+                        <div className="font-medium">Resource Requests & Limits</div>
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                          <div></div>
+                          <div className="text-muted-foreground">Requests</div>
+                          <div className="text-muted-foreground">Limits</div>
+                          <div className="text-muted-foreground">CPU</div>
+                          <div>{((primaryContainer.resources as Record<string, unknown>).requests as Record<string, unknown>)?.cpu as string || 'N/A'}</div>
+                          <div>{((primaryContainer.resources as Record<string, unknown>).limits as Record<string, unknown>)?.cpu as string || 'N/A'}</div>
+                          <div className="text-muted-foreground">Memory</div>
+                          <div>{((primaryContainer.resources as Record<string, unknown>).requests as Record<string, unknown>)?.memory as string || 'N/A'}</div>
+                          <div>{((primaryContainer.resources as Record<string, unknown>).limits as Record<string, unknown>)?.memory as string || 'N/A'}</div>
+                        </div>
+                      </div>
+                    )}
+                    {(primaryContainer.ports as Record<string, unknown>[]) && (primaryContainer.ports as Record<string, unknown>[]).length > 0 && (
+                      <div className="rounded-md border px-4 py-3 text-sm">
+                        <div className="font-medium">Ports</div>
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                          <div className="text-muted-foreground">Name</div>
+                          <div className="text-muted-foreground">Container Port</div>
+                          <div className="text-muted-foreground">Protocol</div>
+                          {(primaryContainer.ports as Record<string, unknown>[]).map((port: Record<string, unknown>, index: number) => (
+                            <>
+                              <div key={`name-${index}`}>{port.name as string || 'N/A'}</div>
+                              <div key={`port-${index}`}>{port.containerPort as number}</div>
+                              <div key={`protocol-${index}`}>{port.protocol as string}</div>
+                            </>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="pods" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Managed Pods</CardTitle>
+              <CardDescription>Pods managed by this {type}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {podsData.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No pods found for this workload
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Restarts</TableHead>
+                      <TableHead>Age</TableHead>
+                      <TableHead>IP</TableHead>
+                      <TableHead>Node</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {podsData.map((pod, index) => (
+                      <TableRow key={`${pod.name}-${index}`}>
+                        <TableCell className="font-medium">{pod.name}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center">
+                            {getPodStatusIcon(pod.status)}
+                            {pod.status}
+                          </div>
+                        </TableCell>
+                        <TableCell>{pod.restarts}</TableCell>
+                        <TableCell>{pod.age}</TableCell>
+                        <TableCell>{pod.ip}</TableCell>
+                        <TableCell>{pod.node}</TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="icon">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="yaml" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>YAML Configuration</CardTitle>
+              <CardDescription>Raw YAML configuration for this {type}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="relative">
+                <Button variant="outline" size="sm" className="absolute right-2 top-2 z-10">
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Open in Editor
+                </Button>
+                <pre className="max-h-[600px] overflow-auto rounded-lg bg-muted p-4 text-sm">
+                  {JSON.stringify(workloadData, null, 2)}
+                </pre>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Scale Dialog */}
+      {showScaleDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96">
+            <h3 className="text-lg font-semibold mb-4">Scale Workload</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">
+                Number of Replicas
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={scaleReplicas}
+                onChange={(e) => setScaleReplicas(parseInt(e.target.value) || 0)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowScaleDialog(false)}
+                disabled={actionLoading !== null}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleScale}
+                disabled={actionLoading !== null}
+              >
+                {actionLoading === 'scale' ? 'Scaling...' : 'Scale'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
