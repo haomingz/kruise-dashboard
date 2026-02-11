@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/openkruise/kruise-dashboard/extensions-backend/pkg/logger"
+	"github.com/openkruise/kruise-dashboard/extensions-backend/pkg/response"
+	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -69,32 +71,53 @@ type ClusterMetrics struct {
 	RunningPods  int32  `json:"runningPods"`
 }
 
+// ListNamespaces returns all namespaces in the cluster
+func ListNamespaces(c *gin.Context) {
+	namespaces, err := k8sClient.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		logger.Log.Error("Failed to list namespaces", zap.Error(err))
+		response.InternalError(c, err)
+		return
+	}
+
+	names := make([]string, 0, len(namespaces.Items))
+	for _, ns := range namespaces.Items {
+		names = append(names, ns.Name)
+	}
+
+	response.Success(c, names)
+}
+
 func GetClusterMetrics(c *gin.Context) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		kubeconfig := clientcmd.NewDefaultClientConfigLoadingRules().GetDefaultFilename()
 		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "error building kubeconfig: " + err.Error()})
+			logger.Log.Error("Failed to build kubeconfig", zap.Error(err))
+			response.InternalError(c, err)
 			return
 		}
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "error creating kubernetes clientset: " + err.Error()})
+		logger.Log.Error("Failed to create kubernetes clientset", zap.Error(err))
+		response.InternalError(c, err)
 		return
 	}
 
 	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "error getting nodes: " + err.Error()})
+		logger.Log.Error("Failed to get nodes", zap.Error(err))
+		response.InternalError(c, err)
 		return
 	}
 
 	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "error getting pods: " + err.Error()})
+		logger.Log.Error("Failed to get pods", zap.Error(err))
+		response.InternalError(c, err)
 		return
 	}
 
@@ -132,5 +155,5 @@ func GetClusterMetrics(c *gin.Context) {
 		RunningPods:  runningPods,
 	}
 
-	c.JSON(http.StatusOK, metrics)
+	response.Success(c, metrics)
 }

@@ -2,23 +2,53 @@ package main
 
 import (
 	"log"
+	"os"
+	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	"github.com/openkruise/kruise-dashboard/extensions-backend/handlers"
+	"github.com/openkruise/kruise-dashboard/extensions-backend/pkg/logger"
 )
 
 func main() {
+	// Load .env file if present (ignore error if file doesn't exist)
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using system environment variables")
+	}
+
+	// Initialize logger
+	if err := logger.InitLogger(); err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+	defer logger.Sync()
+
 	// Initialize Kubernetes client
 	if err := handlers.InitK8sClient(); err != nil {
 		log.Fatalf("Failed to initialize Kubernetes client: %v", err)
 	}
 
+	// Set Gin mode from environment
+	ginMode := os.Getenv("GIN_MODE")
+	if ginMode == "" {
+		ginMode = gin.ReleaseMode
+	}
+	gin.SetMode(ginMode)
+
 	r := gin.Default()
 
 	// Configure CORS
 	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{"*"}
+	// Read allowed origins from environment variable, default to localhost:3000 for development
+	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+	if allowedOrigins == "" {
+		config.AllowOrigins = []string{"http://localhost:3000"}
+		log.Println("CORS: Using default allowed origin: http://localhost:3000")
+	} else {
+		config.AllowOrigins = strings.Split(allowedOrigins, ",")
+		log.Printf("CORS: Using allowed origins from env: %v", config.AllowOrigins)
+	}
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
 	r.Use(cors.New(config))
@@ -26,8 +56,9 @@ func main() {
 	// API routes
 	api := r.Group("/api/v1")
 	{
-		// Cluster metrics endpoint
+		// Cluster endpoints
 		api.GET("/cluster/metrics", handlers.GetClusterMetrics)
+		api.GET("/namespaces", handlers.ListNamespaces)
 		// Rollout management endpoints
 		rollout := api.Group("/rollout")
 		{
@@ -56,5 +87,9 @@ func main() {
 		}
 	}
 
-	r.Run(":8080")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	r.Run(":" + port)
 }

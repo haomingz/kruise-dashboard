@@ -9,6 +9,7 @@ import { ArrowRight, CheckCircle, ExternalLink, Loader2, RefreshCw, Server, XCir
 import Link from "next/link"
 import { useCallback, useEffect, useState } from "react"
 import { listAllRollouts } from "../api/rollout"
+import { useNamespace } from "../hooks/use-namespace"
 
 interface RolloutStep {
   traffic?: string | number
@@ -35,6 +36,7 @@ interface RolloutData {
 }
 
 export function RolloutVisualization() {
+  const { namespace } = useNamespace()
   const [rollouts, setRollouts] = useState<RolloutData[]>([])
   const [loading, setLoading] = useState(true)
   const [, setError] = useState<string | null>(null)
@@ -91,7 +93,7 @@ export function RolloutVisualization() {
 
         if (totalSteps > 0 && stepIndex < steps.length) {
           const currentStep = steps[stepIndex]
-          if (currentStep.traffic) {
+          if (currentStep?.traffic) {
             const trafficValue = currentStep.traffic
             if (typeof trafficValue === 'string') {
               trafficPercent = parseInt(trafficValue.replace('%', ''), 10) || 0
@@ -116,7 +118,7 @@ export function RolloutVisualization() {
 
         if (totalSteps > 0 && stepIndex < steps.length) {
           const currentStep = steps[stepIndex]
-          if (currentStep.traffic) {
+          if (currentStep?.traffic) {
             const trafficValue = currentStep.traffic
             if (typeof trafficValue === 'string') {
               trafficPercent = parseInt(trafficValue.replace('%', ''), 10) || 0
@@ -151,7 +153,7 @@ export function RolloutVisualization() {
     const fetchRollouts = async () => {
       try {
         setLoading(true)
-        const response = await listAllRollouts('default')
+        const response = await listAllRollouts(namespace)
         const transformedData = transformRolloutData(response.rollouts || [])
         setRollouts(transformedData)
         setError(null)
@@ -166,7 +168,7 @@ export function RolloutVisualization() {
     fetchRollouts()
     const interval = setInterval(fetchRollouts, 30000) // Refresh every 30 seconds
     return () => clearInterval(interval)
-  }, [transformRolloutData])
+  }, [namespace, transformRolloutData])
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -196,7 +198,8 @@ export function RolloutVisualization() {
     if (loading) {
       return (
         <div className="fex justify-center items-center py-8">
-          <Loader2 className="h-8 w-8 animate-spin" />
+          <Loader2 className="h-8 w-8 animate-spin" aria-label="Loading rollout visualization" />
+          <span className="sr-only">Loading rollout visualization...</span>
           <span className="ml-2">Loading rollouts...</span>
         </div>
       )
@@ -205,7 +208,7 @@ export function RolloutVisualization() {
     if (rollouts.length === 0) {
       return (
         <div className="text-center py-8 text-muted-foreground">
-          No rollouts found in the default namespace
+          No rollouts found in namespace &quot;{namespace}&quot;
         </div>
       )
     }
@@ -229,7 +232,7 @@ export function RolloutVisualization() {
             <TableRow key={`${rollout.name}-${index}`}>
               <TableCell className="font-medium">
                 <Link
-                  href={`/rollouts/${rollout.namespace}-${rollout.name}`}
+                  href={`/rollouts/${rollout.namespace}/${rollout.name}`}
                   className="text-primary hover:underline"
                 >
                   {rollout.name}
@@ -277,7 +280,7 @@ export function RolloutVisualization() {
               <TableCell>{rollout.age}</TableCell>
               <TableCell className="text-right">
                 <Button variant="ghost" size="sm" asChild>
-                  <Link href={`/rollouts/${rollout.namespace}-${rollout.name}`}>
+                  <Link href={`/rollouts/${rollout.namespace}/${rollout.name}`}>
                     <ExternalLink className="mr-2 h-4 w-4" />
                     View
                   </Link>

@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/openkruise/kruise-dashboard/extensions-backend/pkg/logger"
+	"github.com/openkruise/kruise-dashboard/extensions-backend/pkg/response"
+	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -24,10 +27,15 @@ func GetRollout(c *gin.Context) {
 
 	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to get rollout",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rollout.Object)
+	response.Success(c, rollout.Object)
 }
 
 // GetRolloutStatus returns the current status of a rollout
@@ -37,10 +45,15 @@ func GetRolloutStatus(c *gin.Context) {
 
 	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to get rollout status",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, rollout.Object)
+	response.Success(c, rollout.Object)
 }
 
 // GetRolloutHistory returns the revision history of a rollout
@@ -50,20 +63,25 @@ func GetRolloutHistory(c *gin.Context) {
 
 	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to get rollout for history",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
 	status, found, _ := unstructured.NestedMap(rollout.Object, "status")
 	if !found {
-		c.JSON(http.StatusOK, gin.H{"history": nil})
+		response.Success(c, gin.H{"history": nil})
 		return
 	}
 	history, found, _ := unstructured.NestedSlice(status, "history")
 	if !found {
-		c.JSON(http.StatusOK, gin.H{"history": nil})
+		response.Success(c, gin.H{"history": nil})
 		return
 	}
-	c.JSON(http.StatusOK, history)
+	response.Success(c, history)
 }
 
 // PauseRollout sets the .spec.paused field to true
@@ -73,19 +91,38 @@ func PauseRollout(c *gin.Context) {
 
 	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to get rollout for pause",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
 	if err := unstructured.SetNestedField(rollout.Object, true, "spec", "paused"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to set paused field",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
 	_, err = GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Update(context.TODO(), rollout, metav1.UpdateOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to update rollout for pause",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Rollout paused successfully"})
+	logger.Log.Info("Rollout paused successfully",
+		zap.String("namespace", namespace),
+		zap.String("name", name),
+	)
+	response.Success(c, gin.H{"message": "Rollout paused successfully"})
 }
 
 // ResumeRollout sets the .spec.paused field to false
@@ -95,24 +132,43 @@ func ResumeRollout(c *gin.Context) {
 
 	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to get rollout for resume",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
 	if err := unstructured.SetNestedField(rollout.Object, false, "spec", "paused"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to unset paused field",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
 	_, err = GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Update(context.TODO(), rollout, metav1.UpdateOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to update rollout for resume",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Rollout resumed successfully"})
+	logger.Log.Info("Rollout resumed successfully",
+		zap.String("namespace", namespace),
+		zap.String("name", name),
+	)
+	response.Success(c, gin.H{"message": "Rollout resumed successfully"})
 }
 
 // UndoRollout is a placeholder (real logic would require more context, e.g. revision history)
 func UndoRollout(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "Undo not implemented in backend example. Use CLI for advanced operations."})
+	response.Error(c, http.StatusNotImplemented, "Undo not implemented. Use CLI for advanced operations.", nil, "NOT_IMPLEMENTED")
 }
 
 // RestartRollout adds a restart annotation
@@ -122,7 +178,12 @@ func RestartRollout(c *gin.Context) {
 
 	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to get rollout for restart",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
 	annotations, found, _ := unstructured.NestedStringMap(rollout.Object, "metadata", "annotations")
@@ -131,15 +192,29 @@ func RestartRollout(c *gin.Context) {
 	}
 	annotations["kruise.io/restart"] = time.Now().Format(time.RFC3339)
 	if err := unstructured.SetNestedStringMap(rollout.Object, annotations, "metadata", "annotations"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to set restart annotation",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
 	_, err = GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Update(context.TODO(), rollout, metav1.UpdateOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to update rollout for restart",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Rollout restarted successfully"})
+	logger.Log.Info("Rollout restarted successfully",
+		zap.String("namespace", namespace),
+		zap.String("name", name),
+	)
+	response.Success(c, gin.H{"message": "Rollout restarted successfully"})
 }
 
 // ApproveRollout adds an approval annotation
@@ -149,7 +224,12 @@ func ApproveRollout(c *gin.Context) {
 
 	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to get rollout for approval",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
 	annotations, found, _ := unstructured.NestedStringMap(rollout.Object, "metadata", "annotations")
@@ -158,15 +238,29 @@ func ApproveRollout(c *gin.Context) {
 	}
 	annotations["kruise.io/approved"] = "true"
 	if err := unstructured.SetNestedStringMap(rollout.Object, annotations, "metadata", "annotations"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to set approval annotation",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
 	_, err = GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Update(context.TODO(), rollout, metav1.UpdateOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to update rollout for approval",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Rollout approved successfully"})
+	logger.Log.Info("Rollout approved successfully",
+		zap.String("namespace", namespace),
+		zap.String("name", name),
+	)
+	response.Success(c, gin.H{"message": "Rollout approved successfully"})
 }
 
 // ListAllRollouts lists all rollouts in a namespace
@@ -184,11 +278,15 @@ func ListAllRollouts(c *gin.Context) {
 	}
 
 	if len(allItems) == 0 && v1beta1List == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list rollouts from both v1beta1 and v1alpha1"})
+		logger.Log.Error("Failed to list rollouts",
+			zap.String("namespace", namespace),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	response.Success(c, gin.H{
 		"rollouts":  allItems,
 		"total":     len(allItems),
 		"namespace": namespace,
@@ -202,7 +300,11 @@ func ListActiveRollouts(c *gin.Context) {
 	gvr := schema.GroupVersionResource{Group: "rollouts.kruise.io", Version: "v1beta1", Resource: "rollouts"}
 	list, err := GetDynamicClient().Resource(gvr).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Log.Error("Failed to list active rollouts",
+			zap.String("namespace", namespace),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
 		return
 	}
 	for _, item := range list.Items {
@@ -215,7 +317,7 @@ func ListActiveRollouts(c *gin.Context) {
 			active = append(active, item.Object)
 		}
 	}
-	c.JSON(http.StatusOK, active)
+	response.Success(c, active)
 }
 
 func ListDefaultRollouts(c *gin.Context) {
@@ -238,11 +340,12 @@ func ListDefaultRollouts(c *gin.Context) {
 	}
 
 	if len(allItems) == 0 && v1beta1List == nil && v1alpha1List == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list rollouts from both v1beta1 and v1alpha1 in default namespace"})
+		logger.Log.Error("Failed to list rollouts in default namespace")
+		response.InternalError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	response.Success(c, gin.H{
 		"rollouts":    allItems,
 		"total":       len(allItems),
 		"namespace":   "default",

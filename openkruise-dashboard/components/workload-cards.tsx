@@ -1,10 +1,10 @@
 "use client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Boxes, Cpu, Database, GitMerge, Loader2, Network } from "lucide-react"
-import { useEffect, useState } from "react"
-import { listActiveRollouts } from "../api/rollout"
-import { listAllWorkloads } from "../api/workload"
+import { Boxes, Cpu, Database, GitMerge, Loader2, Network, LucideIcon } from "lucide-react"
+import { useMemo } from "react"
+import { useAllWorkloads } from "../hooks/use-workloads"
+import { useActiveRollouts } from "../hooks/use-rollouts"
 
 interface WorkloadStats {
   total: number
@@ -12,91 +12,131 @@ interface WorkloadStats {
   updating: number
 }
 
-export function WorkloadCards() {
-  const [workloadData, setWorkloadData] = useState<{
-    clonesets: WorkloadStats
-    statefulsets: WorkloadStats
-    daemonsets: WorkloadStats
-    broadcastjobs: WorkloadStats
-    activeRollouts: number
-  } | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+interface WorkloadCardConfig {
+  key: string
+  title: string
+  icon: LucideIcon
+  getValue: (data: WorkloadData) => number
+  getDescription: (data: WorkloadData, formatter: (h: number, u: number, t: string) => string) => string
+}
 
-  const calculateWorkloadStats = (workloads: Record<string, unknown>[]): WorkloadStats => {
-    if (!workloads || workloads.length === 0) {
-      return { total: 0, healthy: 0, updating: 0 }
-    }
+interface WorkloadData {
+  clonesets: WorkloadStats
+  statefulsets: WorkloadStats
+  daemonsets: WorkloadStats
+  broadcastjobs: WorkloadStats
+  activeRollouts: number
+}
 
-    let healthy = 0
-    let updating = 0
+const WORKLOAD_CARDS: WorkloadCardConfig[] = [
+  {
+    key: 'clonesets',
+    title: 'CloneSets',
+    icon: Boxes,
+    getValue: (data) => data.clonesets.total,
+    getDescription: (data, formatter) => formatter(data.clonesets.healthy, data.clonesets.updating, 'clonesets'),
+  },
+  {
+    key: 'statefulsets',
+    title: 'Advanced StatefulSets',
+    icon: Database,
+    getValue: (data) => data.statefulsets.total,
+    getDescription: (data, formatter) => formatter(data.statefulsets.healthy, data.statefulsets.updating, 'statefulsets'),
+  },
+  {
+    key: 'daemonsets',
+    title: 'Advanced DaemonSets',
+    icon: Cpu,
+    getValue: (data) => data.daemonsets.total,
+    getDescription: (data, formatter) => formatter(data.daemonsets.healthy, data.daemonsets.updating, 'daemonsets'),
+  },
+  {
+    key: 'broadcastjobs',
+    title: 'BroadcastJobs',
+    icon: Network,
+    getValue: (data) => data.broadcastjobs.total,
+    getDescription: (data, formatter) => formatter(data.broadcastjobs.healthy, data.broadcastjobs.updating, 'broadcastjobs'),
+  },
+  {
+    key: 'rollouts',
+    title: 'Active Rollouts',
+    icon: GitMerge,
+    getValue: (data) => data.activeRollouts,
+    getDescription: () => 'Progressive delivery in progress'
+  }
+]
 
-    workloads.forEach((workload: Record<string, unknown>) => {
-      const spec = (workload.spec as Record<string, unknown>) || {}
-      const status = (workload.status as Record<string, unknown>) || {}
+interface WorkloadCardProps {
+  config: WorkloadCardConfig
+  data: WorkloadData
+  formatStatusText: (healthy: number, updating: number, workloadType: string) => string
+}
 
-      const desiredReplicas = (spec.replicas as number) || 0
-      const readyReplicas = (status.readyReplicas as number) || 0
-      const updatedReplicas = (status.updatedReplicas as number) || 0
+function WorkloadCard({ config, data, formatStatusText }: WorkloadCardProps) {
+  const Icon = config.icon
 
-      const isFullyReady = readyReplicas === desiredReplicas
-      const isFullyUpdated = updatedReplicas === desiredReplicas
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">{config.title}</CardTitle>
+        <Icon className="h-4 w-4 text-muted-foreground" />
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold">{config.getValue(data)}</div>
+        <p className="text-xs text-muted-foreground">
+          {config.getDescription(data, formatStatusText)}
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
 
-      if (isFullyReady && isFullyUpdated) {
-        healthy++
-      } else {
-        updating++
-      }
-    })
-
-    return {
-      total: workloads.length,
-      healthy,
-      updating
-    }
+function calculateWorkloadStats(workloads: Record<string, unknown>[]): WorkloadStats {
+  if (!workloads || workloads.length === 0) {
+    return { total: 0, healthy: 0, updating: 0 }
   }
 
-  useEffect(() => {
-    const fetchWorkloadData = async () => {
-      try {
-        setLoading(true)
+  let healthy = 0
+  let updating = 0
 
-        // Fetch all workloads and active rollouts
-        const [workloads, rollouts] = await Promise.all([
-          listAllWorkloads('default'),
-          listActiveRollouts('default').catch(() => []) // Fallback to empty array if fails
-        ])
+  workloads.forEach((workload: Record<string, unknown>) => {
+    const spec = (workload.spec as Record<string, unknown>) || {}
+    const status = (workload.status as Record<string, unknown>) || {}
 
-        const stats = {
-          clonesets: calculateWorkloadStats(workloads.clonesets || []),
-          statefulsets: calculateWorkloadStats(workloads.statefulsets || []),
-          daemonsets: calculateWorkloadStats(workloads.daemonsets || []),
-          broadcastjobs: calculateWorkloadStats(workloads.broadcastjobs || []),
-          activeRollouts: rollouts?.length || 0
-        }
+    const desiredReplicas = (spec.replicas as number) || 0
+    const readyReplicas = (status.readyReplicas as number) || 0
+    const updatedReplicas = (status.updatedReplicas as number) || 0
 
-        setWorkloadData(stats)
-        setError(null)
-      } catch (err) {
-        console.error('Error fetching workload data:', err)
-        setError('Failed to fetch workload data')
-        // Set fallback data
-        setWorkloadData({
-          clonesets: { total: 24, healthy: 18, updating: 6 },
-          statefulsets: { total: 12, healthy: 10, updating: 2 },
-          daemonsets: { total: 8, healthy: 8, updating: 0 },
-          broadcastjobs: { total: 5, healthy: 3, updating: 2 },
-          activeRollouts: 7
-        })
-      } finally {
-        setLoading(false)
-      }
+    const isFullyReady = readyReplicas === desiredReplicas
+    const isFullyUpdated = updatedReplicas === desiredReplicas
+
+    if (isFullyReady && isFullyUpdated) {
+      healthy++
+    } else {
+      updating++
     }
+  })
 
-    fetchWorkloadData()
-    const interval = setInterval(fetchWorkloadData, 30000) // Refresh every 30 seconds
-    return () => clearInterval(interval)
-  }, [])
+  return { total: workloads.length, healthy, updating }
+}
+
+export function WorkloadCards() {
+  const { data: workloads, error: workloadError, isLoading: workloadLoading } = useAllWorkloads()
+  const { data: rollouts, isLoading: rolloutLoading } = useActiveRollouts()
+
+  const loading = workloadLoading || rolloutLoading
+
+  const workloadData: WorkloadData | null = useMemo(() => {
+    if (!workloads) return null
+
+    return {
+      clonesets: calculateWorkloadStats(workloads.clonesets || []),
+      statefulsets: calculateWorkloadStats(workloads.statefulsets || []),
+      daemonsets: calculateWorkloadStats(workloads.daemonsets || []),
+      broadcastjobs: calculateWorkloadStats(workloads.broadcastjobs || []),
+      activeRollouts: rollouts?.length || 0
+    }
+  }, [workloads, rollouts])
 
   const formatStatusText = (healthy: number, updating: number, workloadType: string): string => {
     if (workloadType === 'broadcastjobs') {
@@ -113,13 +153,16 @@ export function WorkloadCards() {
   if (loading && !workloadData) {
     return (
       <>
-        {[1, 2, 3, 4, 5].map((i) => (
-          <Card key={i}>
+        {WORKLOAD_CARDS.map((cardConfig) => (
+          <Card key={cardConfig.key}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 <div className="h-4 w-20 bg-gray-200 rounded animate-pulse"></div>
               </CardTitle>
-              <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+              <>
+                <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" aria-label="Loading workload data" />
+                <span className="sr-only">Loading...</span>
+              </>
             </CardHeader>
             <CardContent>
               <div className="h-8 w-8 bg-gray-200 rounded animate-pulse mb-2"></div>
@@ -135,7 +178,7 @@ export function WorkloadCards() {
     return (
       <Card>
         <CardContent className="pt-6">
-          <div className="text-red-500 text-sm">{error || 'Failed to load workload data'}</div>
+          <div className="text-red-500 text-sm">{workloadError ? 'Failed to load workload data' : 'Failed to load workload data'}</div>
         </CardContent>
       </Card>
     )
@@ -143,64 +186,14 @@ export function WorkloadCards() {
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">CloneSets</CardTitle>
-          <Boxes className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{workloadData.clonesets.total}</div>
-          <p className="text-xs text-muted-foreground">
-            {formatStatusText(workloadData.clonesets.healthy, workloadData.clonesets.updating, 'clonesets')}
-          </p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Advanced StatefulSets</CardTitle>
-          <Database className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{workloadData.statefulsets.total}</div>
-          <p className="text-xs text-muted-foreground">
-            {formatStatusText(workloadData.statefulsets.healthy, workloadData.statefulsets.updating, 'statefulsets')}
-          </p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Advanced DaemonSets</CardTitle>
-          <Cpu className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{workloadData.daemonsets.total}</div>
-          <p className="text-xs text-muted-foreground">
-            {formatStatusText(workloadData.daemonsets.healthy, workloadData.daemonsets.updating, 'daemonsets')}
-          </p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">BroadcastJobs</CardTitle>
-          <Network className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{workloadData.broadcastjobs.total}</div>
-          <p className="text-xs text-muted-foreground">
-            {formatStatusText(workloadData.broadcastjobs.healthy, workloadData.broadcastjobs.updating, 'broadcastjobs')}
-          </p>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Active Rollouts</CardTitle>
-          <GitMerge className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{workloadData.activeRollouts}</div>
-          <p className="text-xs text-muted-foreground">Progressive delivery in progress</p>
-        </CardContent>
-      </Card>
+      {WORKLOAD_CARDS.map((cardConfig) => (
+        <WorkloadCard
+          key={cardConfig.key}
+          config={cardConfig}
+          data={workloadData}
+          formatStatusText={formatStatusText}
+        />
+      ))}
     </>
   )
 }

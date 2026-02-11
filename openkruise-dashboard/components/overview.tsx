@@ -3,50 +3,26 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import type React from "react"
-import { useEffect, useState } from "react"
-import type { ClusterMetrics } from "../api/cluster"
-import { getClusterMetrics } from "../api/cluster"
+import { useClusterMetrics } from "../hooks/use-cluster"
 
 interface OverviewProps extends React.HTMLAttributes<HTMLDivElement> {
   className?: string
 }
 
 export function Overview({ className, ...props }: OverviewProps) {
-  const [metrics, setMetrics] = useState<ClusterMetrics | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const fetchMetrics = async () => {
-      try {
-        setLoading(true)
-        const data = await getClusterMetrics()
-        setMetrics(data)
-        setError(null)
-      } catch (err) {
-        setError('Failed to fetch cluster metrics')
-        console.error('Error fetching cluster metrics:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchMetrics()
-    const interval = setInterval(fetchMetrics, 30000) // Refresh every 30 seconds
-    return () => clearInterval(interval)
-  }, [])
+  const { data: metrics, error, isLoading } = useClusterMetrics()
 
   // Extract metrics with fallback values
-  const cpuUsage = metrics?.cpuUsage || 0;
-  const memoryUsage = metrics?.memoryUsage || 0;
-  const storageUsage = metrics?.storageUsage || 0;
-  const networkUsage = metrics?.networkUsage || 0;
-  const nodeCount = metrics?.totalNodes || 0;
-  const readyNodes = metrics?.readyNodes || 0;
-  const podCount = metrics?.totalPods || 0;
-  const runningPods = metrics?.runningPods || 0;
+  const cpuUsage = metrics?.cpuUsage || 0
+  const memoryUsage = metrics?.memoryUsage || 0
+  const storageUsage = metrics?.storageUsage || 0
+  const networkUsage = metrics?.networkUsage || 0
+  const nodeCount = metrics?.totalNodes || 0
+  const readyNodes = metrics?.readyNodes || 0
+  const podCount = metrics?.totalPods || 0
+  const runningPods = metrics?.runningPods || 0
 
-  if (loading && !metrics) {
+  if (isLoading && !metrics) {
     return (
       <Card className={cn(className)} {...props}>
         <CardHeader>
@@ -82,7 +58,7 @@ export function Overview({ className, ...props }: OverviewProps) {
           <CardDescription>Error loading cluster metrics</CardDescription>
         </CardHeader>
         <CardContent className="pl-2">
-          <div className="text-red-500 text-sm">{error}</div>
+          <div className="text-red-500 text-sm">Failed to fetch cluster metrics</div>
         </CardContent>
       </Card>
     )

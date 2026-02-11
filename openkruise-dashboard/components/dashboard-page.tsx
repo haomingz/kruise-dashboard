@@ -1,11 +1,8 @@
-"use client"
-
-
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardShell } from "@/components/dashboard-shell"
 import { MainNav } from "@/components/main-nav"
+import { NamespaceSelector } from "@/components/namespace-selector"
 import { Overview } from "@/components/overview"
-import { RecentActivity } from "@/components/recent-activity"
 import { RolloutVisualization } from "@/components/rollout-visualization"
 import { WorkloadCards } from "@/components/workload-cards"
 import { WorkloadTabs } from "@/components/workload-tabs"
@@ -17,7 +14,9 @@ export function DashboardPage() {
       <div className="border-b">
         <div className="flex h-16 items-center px-4">
           <MainNav className="mx-6" />
-         
+          <div className="ml-auto">
+            <NamespaceSelector />
+          </div>
         </div>
       </div>
       <div className="flex flex-1">
@@ -30,10 +29,7 @@ export function DashboardPage() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <WorkloadCards />
             </div>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-              <Overview className="lg:col-span-4" />
-              <RecentActivity className="lg:col-span-3" />
-            </div>
+            <Overview />
             <WorkloadTabs />
             <RolloutVisualization />
           </DashboardShell>

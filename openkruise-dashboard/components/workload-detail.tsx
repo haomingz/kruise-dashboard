@@ -31,8 +31,9 @@ import {
   XCircle
 } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
-import { useCallback, useEffect, useState } from "react"
-import { deleteWorkload, getWorkloadWithPods, restartWorkload, scaleWorkload } from "../api/workload"
+import { useState } from "react"
+import { deleteWorkload, restartWorkload, scaleWorkload } from "../api/workload"
+import { useWorkloadWithPods } from "../hooks/use-workloads"
 
 
 interface PodData {
@@ -47,72 +48,44 @@ interface PodData {
 export function WorkloadDetail() {
   const params = useParams()
   const router = useRouter()
-  const workloadId = Array.isArray(params.id) ? params.id.join('-') : params.id || ''
+  const workloadType = (Array.isArray(params.type) ? params.type[0] : params.type) || 'cloneset'
+  const namespace = (Array.isArray(params.namespace) ? params.namespace[0] : params.namespace) || 'default'
+  const name = (Array.isArray(params.name) ? params.name[0] : params.name) || ''
 
-  const [workloadData, setWorkloadData] = useState<Record<string, unknown> | null>(null)
-  const [podsData, setPodsData] = useState<PodData[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [showScaleDialog, setShowScaleDialog] = useState(false)
   const [scaleReplicas, setScaleReplicas] = useState<number>(0)
+  const [actionError, setActionError] = useState<string | null>(null)
 
-  // Parse workloadId to extract type, namespace, and name
-  const parseWorkloadId = (id: string) => {
-    const parts = id.split('-')
-    if (parts.length < 3) {
-      throw new Error('Invalid workload ID format')
+  const { data: rawResponse, error: fetchError, isLoading: loading, mutate } = useWorkloadWithPods(
+    namespace,
+    workloadType,
+    name
+  )
+
+  const workloadData = rawResponse?.workload as Record<string, unknown> | undefined ?? null
+  const error = actionError || (fetchError ? 'Failed to fetch workload data' : null)
+
+  // Transform pods data
+  const podsData: PodData[] = (rawResponse?.pods || []).map((pod: Record<string, unknown>) => {
+    const metadata = (pod.metadata as Record<string, unknown>) || {}
+    const status = (pod.status as Record<string, unknown>) || {}
+    const spec = (pod.spec as Record<string, unknown>) || {}
+
+    const containerStatuses = (status.containerStatuses as Record<string, unknown>[]) || []
+    const restartCount = containerStatuses.reduce((total: number, container: Record<string, unknown>) => {
+      return total + ((container.restartCount as number) || 0)
+    }, 0)
+
+    return {
+      name: (metadata.name as string) || 'Unknown',
+      status: (status.phase as string) || 'Unknown',
+      restarts: restartCount,
+      age: calculateAge(metadata.creationTimestamp as string),
+      ip: (status.podIP as string) || 'N/A',
+      node: (spec.nodeName as string) || 'N/A',
     }
-    const type = parts[0]
-    const namespace = parts[1]
-    const name = parts.slice(2).join('-')
-    return { type, namespace, name }
-  }
-
-  const fetchWorkloadData = useCallback(async () => {
-    try {
-      setLoading(true)
-      const { type, namespace, name } = parseWorkloadId(workloadId)
-      const response = await getWorkloadWithPods(namespace, type, name)
-      setWorkloadData(response.workload)
-
-      // Transform pods data
-      const transformedPods = (response.pods || []).map((pod: Record<string, unknown>) => {
-        const metadata = (pod.metadata as Record<string, unknown>) || {}
-        const status = (pod.status as Record<string, unknown>) || {}
-        const spec = (pod.spec as Record<string, unknown>) || {}
-
-        // Calculate restart count
-        const containerStatuses = (status.containerStatuses as Record<string, unknown>[]) || []
-        const restartCount = containerStatuses.reduce((total: number, container: Record<string, unknown>) => {
-          return total + ((container.restartCount as number) || 0)
-        }, 0)
-
-        return {
-          name: (metadata.name as string) || 'Unknown',
-          status: (status.phase as string) || 'Unknown',
-          restarts: restartCount,
-          age: calculateAge(metadata.creationTimestamp as string),
-          ip: (status.podIP as string) || 'N/A',
-          node: (spec.nodeName as string) || 'N/A',
-        }
-      })
-
-      setPodsData(transformedPods)
-      setError(null)
-    } catch (err) {
-      console.error('Error fetching workload data:', err)
-      setError('Failed to fetch workload data')
-    } finally {
-      setLoading(false)
-    }
-  }, [workloadId])
-
-  useEffect(() => {
-    if (workloadId) {
-      fetchWorkloadData()
-    }
-  }, [workloadId, fetchWorkloadData])
+  })
 
   // Action handlers
   const handleScale = async () => {
@@ -120,15 +93,12 @@ export function WorkloadDetail() {
 
     try {
       setActionLoading('scale')
-      const { type, namespace, name } = parseWorkloadId(workloadId)
-      await scaleWorkload(namespace, type, name, scaleReplicas)
-
-      // Refresh the workload data
-      await fetchWorkloadData()
+      await scaleWorkload(namespace, workloadType, name, scaleReplicas)
+      await mutate()
       setShowScaleDialog(false)
     } catch (err) {
       console.error('Error scaling workload:', err)
-      setError('Failed to scale workload')
+      setActionError('Failed to scale workload')
     } finally {
       setActionLoading(null)
     }
@@ -139,14 +109,11 @@ export function WorkloadDetail() {
 
     try {
       setActionLoading('restart')
-      const { type, namespace, name } = parseWorkloadId(workloadId)
-      await restartWorkload(namespace, type, name)
-
-      // Refresh the workload data
-      await fetchWorkloadData()
+      await restartWorkload(namespace, workloadType, name)
+      await mutate()
     } catch (err) {
       console.error('Error restarting workload:', err)
-      setError('Failed to restart workload')
+      setActionError('Failed to restart workload')
     } finally {
       setActionLoading(null)
     }
@@ -155,20 +122,17 @@ export function WorkloadDetail() {
   const handleDelete = async () => {
     if (!workloadData) return
 
-    if (!confirm(`Are you sure you want to delete this ${parseWorkloadId(workloadId).type}? This action cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete this ${workloadType}? This action cannot be undone.`)) {
       return
     }
 
     try {
       setActionLoading('delete')
-      const { type, namespace, name } = parseWorkloadId(workloadId)
-      await deleteWorkload(namespace, type, name)
-
-      // Navigate back to workloads list
+      await deleteWorkload(namespace, workloadType, name)
       router.push('/workloads')
     } catch (err) {
       console.error('Error deleting workload:', err)
-      setError('Failed to delete workload')
+      setActionError('Failed to delete workload')
     } finally {
       setActionLoading(null)
     }
@@ -241,7 +205,7 @@ export function WorkloadDetail() {
     return (
       <div className="container mx-auto py-6">
         <div className="flex justify-center items-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin" />
+          <Loader2 className="h-8 w-8 animate-spin" aria-label="Loading workload details" />
           <span className="ml-2">Loading workload details...</span>
         </div>
       </div>
@@ -263,7 +227,7 @@ export function WorkloadDetail() {
   const metadata = (workloadData.metadata as Record<string, unknown>) || {}
   const spec = (workloadData.spec as Record<string, unknown>) || {}
   const status = (workloadData.status as Record<string, unknown>) || {}
-  const { type } = parseWorkloadId(workloadId)
+  const type = workloadType
 
   const desiredReplicas = (spec.replicas as number) || 0
   const readyReplicas = (status.readyReplicas as number) || 0
@@ -278,7 +242,7 @@ export function WorkloadDetail() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">
-            {type.charAt(0).toUpperCase() + type.slice(1)}: {metadata.name as string}
+            {type ? type.charAt(0).toUpperCase() + type.slice(1) : "Workload"}: {metadata.name as string}
           </h1>
           <div className="flex items-center gap-2 text-muted-foreground">
             <span>Namespace: {metadata.namespace as string}</span>

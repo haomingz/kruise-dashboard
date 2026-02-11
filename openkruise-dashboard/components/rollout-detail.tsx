@@ -6,8 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ArrowLeft, CheckCircle, Loader2, RefreshCw, Server, XCircle } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
-import { useCallback, useEffect, useState } from "react"
-import { getRollout } from "../api/rollout"
+import { useMemo } from "react"
+import { useRollout } from "../hooks/use-rollouts"
 
 interface RolloutStep {
     traffic?: string | number
@@ -51,21 +51,10 @@ interface RolloutDetailData {
 export function RolloutDetail() {
     const params = useParams()
     const router = useRouter()
-    const [rollout, setRollout] = useState<RolloutDetailData | null>(null)
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
+    const namespace = (Array.isArray(params.namespace) ? params.namespace[0] : params.namespace) || 'default'
+    const name = (Array.isArray(params.name) ? params.name[0] : params.name) || ''
 
-    const rolloutId = Array.isArray(params.id) ? params.id.join('-') : params.id || ''
-
-    const parseRolloutId = (id: string) => {
-        const parts = id.split('-')
-        if (parts.length < 3) {
-            throw new Error('Invalid rollout ID format')
-        }
-        const namespace = parts[0]
-        const name = parts.slice(1).join('-')
-        return { namespace, name }
-    }
+    const { data: rawRolloutData, error: fetchError, isLoading: loading } = useRollout(namespace, name)
 
     // Helper function to calculate age from timestamp
     const calculateAge = (creationTimestamp?: string): string => {
@@ -87,7 +76,10 @@ export function RolloutDetail() {
     }
 
     // Transform rollout data from API response
-    const transformRolloutData = useCallback((rolloutData: Record<string, unknown>): RolloutDetailData => {
+    const rollout = useMemo((): RolloutDetailData | null => {
+        if (!rawRolloutData) return null
+
+        const rolloutData = rawRolloutData as Record<string, unknown>
         const metadata = (rolloutData.metadata as Record<string, unknown>) || {}
         const spec = (rolloutData.spec as Record<string, unknown>) || {}
         const status = (rolloutData.status as Record<string, unknown>) || {}
@@ -122,7 +114,7 @@ export function RolloutDetail() {
 
             if (totalSteps > 0 && stepIndex < steps.length) {
                 const currentStep = steps[stepIndex]
-                if (currentStep.traffic) {
+                if (currentStep?.traffic) {
                     const trafficValue = currentStep.traffic
                     if (typeof trafficValue === 'string') {
                         trafficPercent = parseInt(trafficValue.replace('%', ''), 10) || 0
@@ -147,7 +139,7 @@ export function RolloutDetail() {
 
             if (totalSteps > 0 && stepIndex < steps.length) {
                 const currentStep = steps[stepIndex]
-                if (currentStep.traffic) {
+                if (currentStep?.traffic) {
                     const trafficValue = currentStep.traffic
                     if (typeof trafficValue === 'string') {
                         trafficPercent = parseInt(trafficValue.replace('%', ''), 10) || 0
@@ -175,35 +167,15 @@ export function RolloutDetail() {
             progressPct,
             trafficPercent,
             steps,
-            trafficRoutings: ((specStrategy.blueGreen as Record<string, unknown>)?.trafficRoutings as TrafficRouting[]) || [],
+            trafficRoutings: ((specStrategy?.blueGreen as Record<string, unknown>)?.trafficRoutings as TrafficRouting[]) || [],
             message: status.message as string,
             observedGeneration: status.observedGeneration as number,
             creationTimestamp: metadata.creationTimestamp as string,
             uid: metadata.uid as string
         }
-    }, [])
+    }, [rawRolloutData])
 
-    useEffect(() => {
-        const fetchRollout = async () => {
-            try {
-                setLoading(true)
-                const { namespace, name } = parseRolloutId(rolloutId)
-                const response = await getRollout(namespace, name)
-                const transformedData = transformRolloutData(response)
-                setRollout(transformedData)
-                setError(null)
-            } catch (err) {
-                console.error('Error fetching rollout:', err)
-                setError('Failed to fetch rollout data')
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        if (rolloutId) {
-            fetchRollout()
-        }
-    }, [rolloutId, transformRolloutData])
+    const error = fetchError ? 'Failed to fetch rollout data' : null
 
     const getStatusIcon = (status: string) => {
         switch (status) {
@@ -232,7 +204,8 @@ export function RolloutDetail() {
     if (loading) {
         return (
             <div className="flex justify-center items-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin" />
+                <Loader2 className="h-8 w-8 animate-spin" aria-label="Loading rollout details" />
+                <span className="sr-only">Loading rollout details...</span>
                 <span className="ml-2">Loading rollout details...</span>
             </div>
         )
