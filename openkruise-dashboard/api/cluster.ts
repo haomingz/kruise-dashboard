@@ -1,26 +1,22 @@
 import axiosInstance from './axiosInstance';
 
-// Types for cluster metrics (adjust based on your actual API response)
+// Types for cluster metrics (from backend /cluster/metrics; CPU/memory from metrics-server)
 export interface ClusterMetrics {
-    // Resource usage percentages
+    // Resource usage percentages (CPU/memory real; storage/network 0 when not available)
     cpuUsage?: number;
     memoryUsage?: number;
     storageUsage?: number;
     networkUsage?: number;
 
     // Node information
-    nodeCount?: number;
+    totalNodes?: number;
     readyNodes?: number;
 
     // Pod information
-    podCount?: number;
+    totalPods?: number;
     runningPods?: number;
 
-    // Deployment information
-    deploymentCount?: number;
-
-    // Allow for additional metrics
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 /**

@@ -12,15 +12,17 @@ interface OverviewProps extends React.HTMLAttributes<HTMLDivElement> {
 export function Overview({ className, ...props }: Readonly<OverviewProps>) {
   const { data: metrics, error, isLoading } = useClusterMetrics()
 
-  // Extract metrics with fallback values
-  const cpuUsage = metrics?.cpuUsage || 0
-  const memoryUsage = metrics?.memoryUsage || 0
-  const storageUsage = metrics?.storageUsage || 0
-  const networkUsage = metrics?.networkUsage || 0
-  const nodeCount = metrics?.totalNodes || 0
-  const readyNodes = metrics?.readyNodes || 0
-  const podCount = metrics?.totalPods || 0
-  const runningPods = metrics?.runningPods || 0
+  // Extract metrics (API returns numbers; storage/network are 0 when not provided by metrics API)
+  const cpuUsage = Number(metrics?.cpuUsage) || 0
+  const memoryUsage = Number(metrics?.memoryUsage) || 0
+  const storageUsage = Number(metrics?.storageUsage) || 0
+  const networkUsage = Number(metrics?.networkUsage) || 0
+  const nodeCount = metrics?.totalNodes ?? 0
+  const readyNodes = metrics?.readyNodes ?? 0
+  const podCount = metrics?.totalPods ?? 0
+  const runningPods = metrics?.runningPods ?? 0
+  const hasStorage = storageUsage > 0
+  const hasNetwork = networkUsage > 0
 
   if (isLoading && !metrics) {
     return (
@@ -90,16 +92,16 @@ export function Overview({ className, ...props }: Readonly<OverviewProps>) {
             <div className="flex items-center">
               <div className="mr-2 w-14 text-right text-sm font-medium">Storage</div>
               <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div className="flex h-full bg-primary" style={{ width: `${Math.min(storageUsage, 100)}%` }} />
+                <div className="flex h-full bg-primary" style={{ width: hasStorage ? `${Math.min(storageUsage, 100)}%` : "0%" }} />
               </div>
-              <span className="ml-2 text-sm tabular-nums text-muted-foreground">{Math.round(storageUsage)}%</span>
+              <span className="ml-2 text-sm tabular-nums text-muted-foreground">{hasStorage ? `${Math.round(storageUsage)}%` : "N/A"}</span>
             </div>
             <div className="flex items-center">
               <div className="mr-2 w-14 text-right text-sm font-medium">Network</div>
               <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div className="flex h-full bg-primary" style={{ width: `${Math.min(networkUsage, 100)}%` }} />
+                <div className="flex h-full bg-primary" style={{ width: hasNetwork ? `${Math.min(networkUsage, 100)}%` : "0%" }} />
               </div>
-              <span className="ml-2 text-sm tabular-nums text-muted-foreground">{Math.round(networkUsage)}%</span>
+              <span className="ml-2 text-sm tabular-nums text-muted-foreground">{hasNetwork ? `${Math.round(networkUsage)}%` : "N/A"}</span>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
