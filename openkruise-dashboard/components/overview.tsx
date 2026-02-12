@@ -26,25 +26,23 @@ export function Overview({ className, ...props }: Readonly<OverviewProps>) {
 
   if (isLoading && !metrics) {
     return (
-      <Card className={cn(className)} {...props}>
-        <CardHeader>
-          <CardTitle>Cluster Overview</CardTitle>
-          <CardDescription>Loading cluster metrics…</CardDescription>
+      <Card className={cn("min-w-0 gap-3 py-4", className)} {...props}>
+        <CardHeader className="p-0 px-4 pt-0 pb-1">
+          <CardTitle className="text-base sm:text-lg">Cluster Overview</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">Loading cluster metrics…</CardDescription>
         </CardHeader>
-        <CardContent className="pl-2">
-          <div className="space-y-8">
-            <div className="motion-safe:animate-pulse">
-              <div className="space-y-4">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="flex items-center">
-                    <div className="mr-2 w-14 h-4 bg-gray-200 rounded"></div>
-                    <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-gray-200">
-                      <div className="flex h-full w-[50%] bg-gray-300" />
-                    </div>
-                    <span className="ml-2 w-8 h-4 bg-gray-200 rounded"></span>
+        <CardContent className="px-4 pb-4 pt-0">
+          <div className="space-y-3">
+            <div className="motion-safe:animate-pulse space-y-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <div className="w-14 h-3 bg-muted rounded" />
+                  <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div className="flex h-full w-[40%] bg-muted-foreground/10 rounded-full" />
                   </div>
-                ))}
-              </div>
+                  <div className="w-10 h-3 bg-muted rounded" />
+                </div>
+              ))}
             </div>
           </div>
         </CardContent>
@@ -54,78 +52,72 @@ export function Overview({ className, ...props }: Readonly<OverviewProps>) {
 
   if (error) {
     return (
-      <Card className={cn(className)} {...props}>
-        <CardHeader>
-          <CardTitle>Cluster Overview</CardTitle>
-          <CardDescription>Error loading cluster metrics</CardDescription>
+      <Card className={cn("min-w-0 gap-3 py-4", className)} {...props}>
+        <CardHeader className="p-0 px-4 pt-0 pb-1">
+          <CardTitle className="text-base sm:text-lg">Cluster Overview</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">Error loading cluster metrics</CardDescription>
         </CardHeader>
-        <CardContent className="pl-2">
-          <div className="text-red-500 text-sm">Failed to fetch cluster metrics</div>
+        <CardContent className="px-4 pb-4 pt-0">
+          <div className="text-destructive text-sm">Failed to fetch cluster metrics</div>
         </CardContent>
       </Card>
     )
   }
 
   return (
-    <Card className={cn(className)} {...props}>
-      <CardHeader>
-        <CardTitle>Cluster Overview</CardTitle>
-        <CardDescription>Resource utilization across your Kubernetes cluster</CardDescription>
+    <Card className={cn("min-w-0 gap-3 py-4", className)} {...props}>
+      <CardHeader className="p-0 px-4 pt-0 pb-1">
+        <CardTitle className="text-base sm:text-lg">Cluster Overview</CardTitle>
+        <CardDescription className="text-xs sm:text-sm">Resource utilization across your cluster</CardDescription>
       </CardHeader>
-      <CardContent className="pl-2">
-        <div className="space-y-8">
+      <CardContent className="px-4 pb-4 pt-0">
+        <div className="space-y-3">
           <div className="space-y-2">
-            <div className="flex items-center">
-              <div className="mr-2 w-14 text-right text-sm font-medium">CPU</div>
-              <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div className="flex h-full bg-primary" style={{ width: `${Math.min(cpuUsage, 100)}%` }} />
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="w-12 sm:w-14 shrink-0 text-right text-xs font-medium text-muted-foreground">CPU</div>
+              <div className="relative flex h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-secondary">
+                <div className="flex h-full rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${Math.min(cpuUsage, 100)}%` }} />
               </div>
-              <span className="ml-2 text-sm tabular-nums text-muted-foreground">{Math.round(cpuUsage)}%</span>
+              <span className="w-9 sm:w-10 shrink-0 text-right text-xs tabular-nums font-medium">{Math.round(cpuUsage)}%</span>
             </div>
-            <div className="flex items-center">
-              <div className="mr-2 w-14 text-right text-sm font-medium">Memory</div>
-              <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div className="flex h-full bg-primary" style={{ width: `${Math.min(memoryUsage, 100)}%` }} />
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="w-12 sm:w-14 shrink-0 text-right text-xs font-medium text-muted-foreground">Memory</div>
+              <div className="relative flex h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-secondary">
+                <div className="flex h-full rounded-full bg-violet-500 transition-all duration-500" style={{ width: `${Math.min(memoryUsage, 100)}%` }} />
               </div>
-              <span className="ml-2 text-sm tabular-nums text-muted-foreground">{Math.round(memoryUsage)}%</span>
+              <span className="w-9 sm:w-10 shrink-0 text-right text-xs tabular-nums font-medium">{Math.round(memoryUsage)}%</span>
             </div>
-            <div className="flex items-center">
-              <div className="mr-2 w-14 text-right text-sm font-medium">Storage</div>
-              <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div className="flex h-full bg-primary" style={{ width: hasStorage ? `${Math.min(storageUsage, 100)}%` : "0%" }} />
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="w-12 sm:w-14 shrink-0 text-right text-xs font-medium text-muted-foreground">Storage</div>
+              <div className="relative flex h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-secondary">
+                <div className="flex h-full rounded-full bg-amber-500 transition-all duration-500" style={{ width: hasStorage ? `${Math.min(storageUsage, 100)}%` : "0%" }} />
               </div>
-              <span className="ml-2 text-sm tabular-nums text-muted-foreground">{hasStorage ? `${Math.round(storageUsage)}%` : "N/A"}</span>
+              <span className="w-9 sm:w-10 shrink-0 text-right text-xs tabular-nums font-medium">{hasStorage ? `${Math.round(storageUsage)}%` : "N/A"}</span>
             </div>
-            <div className="flex items-center">
-              <div className="mr-2 w-14 text-right text-sm font-medium">Network</div>
-              <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
-                <div className="flex h-full bg-primary" style={{ width: hasNetwork ? `${Math.min(networkUsage, 100)}%` : "0%" }} />
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="w-12 sm:w-14 shrink-0 text-right text-xs font-medium text-muted-foreground">Network</div>
+              <div className="relative flex h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-secondary">
+                <div className="flex h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: hasNetwork ? `${Math.min(networkUsage, 100)}%` : "0%" }} />
               </div>
-              <span className="ml-2 text-sm tabular-nums text-muted-foreground">{hasNetwork ? `${Math.round(networkUsage)}%` : "N/A"}</span>
+              <span className="w-9 sm:w-10 shrink-0 text-right text-xs tabular-nums font-medium">{hasNetwork ? `${Math.round(networkUsage)}%` : "N/A"}</span>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Nodes</div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm">Total</div>
-                <div className="font-medium tabular-nums">{nodeCount}</div>
+          <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/50 p-2.5">
+            <div className="space-y-0.5">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Nodes</div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-lg font-bold tabular-nums">{readyNodes}</span>
+                <span className="text-xs text-muted-foreground">/ {nodeCount}</span>
               </div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm">Ready</div>
-                <div className="font-medium tabular-nums">{readyNodes}</div>
-              </div>
+              <div className="text-xs text-muted-foreground">ready</div>
             </div>
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Pods</div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm">Total</div>
-                <div className="font-medium tabular-nums">{podCount}</div>
+            <div className="space-y-0.5">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Pods</div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-lg font-bold tabular-nums">{runningPods}</span>
+                <span className="text-xs text-muted-foreground">/ {podCount}</span>
               </div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm">Running</div>
-                <div className="font-medium tabular-nums">{runningPods}</div>
-              </div>
+              <div className="text-xs text-muted-foreground">running</div>
             </div>
           </div>
         </div>

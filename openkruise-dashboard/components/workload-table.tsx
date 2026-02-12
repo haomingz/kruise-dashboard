@@ -57,52 +57,54 @@ export const WorkloadTable = memo(function WorkloadTable({ workloadList, type, s
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Name</TableHead>
-          <TableHead>Namespace</TableHead>
-          <TableHead>Replicas</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Update Strategy</TableHead>
-          {showImage && <TableHead>Image</TableHead>}
-          <TableHead>Age</TableHead>
-          <TableHead className="text-right">Actions</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {workloadList.map((workload, index) => (
-          <TableRow key={`${workload.name}-${index}`}>
-            <TableCell className="font-medium">
-              <Link
-                href={`/workloads/${workload.workloadType}/${workload.namespace}/${workload.name}`}
-                className="text-primary hover:underline"
-              >
-                {workload.name}
-              </Link>
-            </TableCell>
-            <TableCell>{workload.namespace}</TableCell>
-            <TableCell>{workload.replicas}</TableCell>
-            <TableCell>
-              <div className="flex items-center">
-                <StatusIcon status={workload.status} />
-                {workload.status}
-              </div>
-            </TableCell>
-            <TableCell>{workload.updateStrategy}</TableCell>
-            {showImage && <TableCell className="max-w-xs truncate" title={workload.image}>{workload.image}</TableCell>}
-            <TableCell>{workload.age}</TableCell>
-            <TableCell className="text-right">
-              <Button variant="ghost" size="sm" asChild>
-                <Link href={`/workloads/${workload.workloadType}/${workload.namespace}/${workload.name}`}>
-                  <ExternalLink className="mr-2 h-4 w-4" aria-hidden="true" />
-                  View
-                </Link>
-              </Button>
-            </TableCell>
+    <div className="min-w-0 -mx-2 sm:mx-0 [&_th]:h-9 [&_th]:py-1.5 [&_td]:py-1.5 [&_th]:px-2 [&_td]:px-2">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="min-w-[100px]">Name</TableHead>
+            <TableHead className="hidden md:table-cell">Namespace</TableHead>
+            <TableHead className="whitespace-nowrap">Replicas</TableHead>
+            <TableHead className="whitespace-nowrap">Status</TableHead>
+            <TableHead className="hidden lg:table-cell">Update Strategy</TableHead>
+            {showImage && <TableHead className="hidden xl:table-cell max-w-[120px]">Image</TableHead>}
+            <TableHead className="whitespace-nowrap">Age</TableHead>
+            <TableHead className="text-right w-[80px]">Actions</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {workloadList.map((workload, index) => (
+            <TableRow key={`${workload.name}-${index}`}>
+              <TableCell className="font-medium min-w-0">
+                <Link
+                  href={`/workloads/${workload.workloadType}/${workload.namespace}/${workload.name}`}
+                  className="text-primary hover:underline truncate block max-w-[200px] sm:max-w-none"
+                >
+                  {workload.name}
+                </Link>
+              </TableCell>
+              <TableCell className="hidden md:table-cell">{workload.namespace}</TableCell>
+              <TableCell className="tabular-nums">{workload.replicas}</TableCell>
+              <TableCell>
+                <div className="flex items-center gap-1">
+                  <StatusIcon status={workload.status} />
+                  <span className="whitespace-nowrap">{workload.status}</span>
+                </div>
+              </TableCell>
+              <TableCell className="hidden lg:table-cell">{workload.updateStrategy}</TableCell>
+              {showImage && <TableCell className="hidden xl:table-cell max-w-[120px] truncate" title={workload.image}>{workload.image}</TableCell>}
+              <TableCell className="tabular-nums">{workload.age}</TableCell>
+              <TableCell className="text-right">
+                <Button variant="ghost" size="sm" asChild className="shrink-0">
+                  <Link href={`/workloads/${workload.workloadType}/${workload.namespace}/${workload.name}`}>
+                    <ExternalLink className="h-4 w-4 sm:mr-2" aria-hidden="true" />
+                    <span className="hidden sm:inline">View</span>
+                  </Link>
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   )
 })

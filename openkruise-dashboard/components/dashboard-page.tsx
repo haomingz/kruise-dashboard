@@ -10,27 +10,27 @@ import { WorkloadTabs } from "@/components/workload-tabs"
 export function DashboardPage() {
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <div className="border-b">
-        <div className="flex h-16 items-center px-4">
-          <MainNav className="mx-6" />
-          <div className="ml-auto">
-            <NamespaceSelector />
-          </div>
+    <div className="flex h-dvh flex-col bg-muted/40 overflow-hidden">
+      <header className="shrink-0 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
+        <div className="flex h-14 min-h-14 items-center gap-4 px-4 py-2 sm:pl-6 sm:pr-6 sm:py-0 min-w-0">
+          <MainNav className="min-w-0 flex-1 shrink" />
+          <NamespaceSelector />
         </div>
-      </div>
-      <div className="flex flex-1">
-        <div className="flex-1 space-y-3 p-6 pt-4">
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="min-w-0 space-y-4 p-3 sm:p-6">
           <DashboardShell>
             <DashboardHeader
-              heading="OpenKruise Dashboard"
-              text="Monitor and manage your Kubernetes extended components"
+              heading="Dashboard"
+              text="Monitor and manage your OpenKruise workloads"
             />
-            <div className="grid gap-3 lg:grid-cols-2 items-start">
-              <div className="grid gap-3 grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5 items-start">
+              <div className="min-w-0 md:col-span-1 lg:col-span-3 grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                 <WorkloadCards />
               </div>
-              <Overview />
+              <div className="min-w-0 md:col-span-1 lg:col-span-2">
+                <Overview />
+              </div>
             </div>
             <WorkloadTabs />
             <RolloutVisualization />

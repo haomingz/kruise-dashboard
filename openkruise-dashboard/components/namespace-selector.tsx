@@ -29,21 +29,28 @@ export function NamespaceSelector() {
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-sm text-muted-foreground whitespace-nowrap">Namespace:</span>
+    <div className="flex items-center gap-2 min-w-0 shrink-0">
+      <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap shrink-0 hidden sm:inline">
+        Namespace:
+      </span>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            className="w-[200px] justify-between"
+            className="w-[140px] sm:w-[200px] min-w-0 justify-between text-left"
           >
             <span className="truncate">{namespace}</span>
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[200px] p-0">
+        <PopoverContent
+          className="w-(--radix-popover-trigger-width) min-w-[180px] max-w-[calc(100vw-2rem)] p-0"
+          align="end"
+          side="bottom"
+          sideOffset={4}
+        >
           <Command>
             <CommandInput placeholder="Search namespace…" />
             <CommandList>

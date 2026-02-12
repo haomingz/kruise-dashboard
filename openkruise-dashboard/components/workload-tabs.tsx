@@ -74,18 +74,19 @@ function transformWorkloadData(workloads: Record<string, unknown>[], workloadTyp
 interface TabConfig {
   key: string
   label: string
+  shortLabel: string
   title: string
   description: string
   showImage?: boolean
 }
 
 const TAB_CONFIGS: TabConfig[] = [
-  { key: 'clonesets', label: 'CloneSets', title: 'CloneSets', description: 'Enhanced workload for stateless applications with advanced features' },
-  { key: 'statefulsets', label: 'Advanced StatefulSets', title: 'Advanced StatefulSets', description: 'Advanced StatefulSets with enhanced capabilities for stateful applications' },
-  { key: 'daemonsets', label: 'Advanced DaemonSets', title: 'Advanced DaemonSets', description: 'Advanced DaemonSets with enhanced node-level workload management' },
-  { key: 'sidecars', label: 'SidecarSets', title: 'SidecarSets', description: 'Manage sidecar containers across multiple pods with in-place update capabilities' },
-  { key: 'broadcastjobs', label: 'BroadcastJobs', title: 'BroadcastJobs', description: 'Jobs that run on all or selected nodes in the cluster' },
-  { key: 'advancedcronjobs', label: 'Advanced CronJobs', title: 'Advanced CronJobs', description: 'Enhanced CronJobs with advanced scheduling and lifecycle management', showImage: false },
+  { key: 'clonesets', label: 'CloneSets', shortLabel: 'CloneSets', title: 'CloneSets', description: 'Enhanced workload for stateless applications with advanced features' },
+  { key: 'statefulsets', label: 'Advanced StatefulSets', shortLabel: 'StatefulSets', title: 'Advanced StatefulSets', description: 'Advanced StatefulSets with enhanced capabilities for stateful applications' },
+  { key: 'daemonsets', label: 'Advanced DaemonSets', shortLabel: 'DaemonSets', title: 'Advanced DaemonSets', description: 'Advanced DaemonSets with enhanced node-level workload management' },
+  { key: 'sidecars', label: 'SidecarSets', shortLabel: 'Sidecars', title: 'SidecarSets', description: 'Manage sidecar containers across multiple pods with in-place update capabilities' },
+  { key: 'broadcastjobs', label: 'BroadcastJobs', shortLabel: 'BCJobs', title: 'BroadcastJobs', description: 'Jobs that run on all or selected nodes in the cluster' },
+  { key: 'advancedcronjobs', label: 'Advanced CronJobs', shortLabel: 'CronJobs', title: 'Advanced CronJobs', description: 'Enhanced CronJobs with advanced scheduling and lifecycle management', showImage: false },
 ]
 
 export function WorkloadTabs() {
@@ -107,8 +108,8 @@ export function WorkloadTabs() {
 
   if (error && !isLoading) {
     return (
-      <Card>
-        <CardContent className="pt-6">
+      <Card className="gap-2 py-3">
+        <CardContent className="px-4 pb-4 pt-0">
           <div className="text-red-500 text-sm">Failed to fetch workload data</div>
         </CardContent>
       </Card>
@@ -116,23 +117,25 @@ export function WorkloadTabs() {
   }
 
   return (
-    <Tabs defaultValue="clonesets" className="space-y-4">
-      <TabsList>
+    <Tabs defaultValue="clonesets" className="space-y-3 min-w-0">
+      <TabsList className="flex-nowrap">
         {TAB_CONFIGS.map((tab) => (
-          <TabsTrigger key={tab.key} value={tab.key}>
-            {tab.label} (<span className="tabular-nums">{workloads[tab.key as keyof WorkloadState].length}</span>)
+          <TabsTrigger key={tab.key} value={tab.key} className="shrink-0">
+            <span className="sm:hidden">{tab.shortLabel}</span>
+            <span className="hidden sm:inline">{tab.label}</span>
+            {' '}(<span className="tabular-nums">{workloads[tab.key as keyof WorkloadState].length}</span>)
           </TabsTrigger>
         ))}
       </TabsList>
 
       {TAB_CONFIGS.map((tab) => (
-        <TabsContent key={tab.key} value={tab.key} className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>{tab.title}</CardTitle>
-              <CardDescription>{tab.description}</CardDescription>
+        <TabsContent key={tab.key} value={tab.key} className="space-y-0 min-w-0">
+          <Card className="min-w-0 gap-3 py-4">
+            <CardHeader className="p-0 px-4 pt-0 pb-1">
+              <CardTitle className="text-base sm:text-lg">{tab.title}</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">{tab.description}</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-4 pb-4 pt-0">
               <WorkloadTable
                 workloadList={workloads[tab.key as keyof WorkloadState]}
                 type={tab.label}

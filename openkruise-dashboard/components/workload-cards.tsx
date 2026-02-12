@@ -76,14 +76,16 @@ function WorkloadCard({ config, data, formatStatusText }: Readonly<WorkloadCardP
   const Icon = config.icon
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{config.title}</CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+    <Card className="transition-colors hover:border-foreground/15 min-w-0 gap-2 py-3">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 p-0 px-3 pt-0">
+        <CardTitle className="text-xs sm:text-sm font-medium truncate pr-2">{config.title}</CardTitle>
+        <div className="rounded-md bg-muted p-1.5 shrink-0">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+        </div>
       </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold tabular-nums">{config.getValue(data)}</div>
-        <p className="text-xs text-muted-foreground">
+      <CardContent className="px-3 pb-3 pt-0">
+        <div className="text-xl sm:text-2xl font-bold tabular-nums">{config.getValue(data)}</div>
+        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
           {config.getDescription(data, formatStatusText)}
         </p>
       </CardContent>
@@ -160,19 +162,19 @@ export function WorkloadCards() {
     return (
       <>
         {WORKLOAD_CARDS.map((cardConfig) => (
-          <Card key={cardConfig.key}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <Card key={cardConfig.key} className="gap-2 py-3">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-0 px-3 pt-0">
               <CardTitle className="text-sm font-medium">
-                <div className="h-4 w-20 bg-gray-200 rounded motion-safe:animate-pulse"></div>
+                <div className="h-4 w-20 bg-muted rounded motion-safe:animate-pulse" />
               </CardTitle>
-              <>
-                <Loader2 className="h-4 w-4 text-muted-foreground motion-safe:animate-spin" aria-label="Loading workload data" />
-                <span className="sr-only">Loading…</span>
-              </>
+              <div className="rounded-md bg-muted p-1.5">
+                <Loader2 className="h-3.5 w-3.5 text-muted-foreground motion-safe:animate-spin" aria-hidden="true" />
+                <span className="sr-only">Loading workload data</span>
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className="h-8 w-8 bg-gray-200 rounded motion-safe:animate-pulse mb-2"></div>
-              <div className="h-3 w-24 bg-gray-200 rounded motion-safe:animate-pulse"></div>
+            <CardContent className="px-3 pb-3 pt-0">
+              <div className="h-6 w-10 bg-muted rounded motion-safe:animate-pulse mb-1" />
+              <div className="h-3 w-24 bg-muted rounded motion-safe:animate-pulse" />
             </CardContent>
           </Card>
         ))}
@@ -182,8 +184,8 @@ export function WorkloadCards() {
 
   if (!workloadData) {
     return (
-      <Card>
-        <CardContent className="pt-6">
+      <Card className="gap-2 py-3">
+        <CardContent className="px-3 pb-3 pt-0">
           <div className="text-red-500 text-sm">Failed to load workload data</div>
         </CardContent>
       </Card>
