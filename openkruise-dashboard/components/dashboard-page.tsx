@@ -20,14 +20,14 @@ export function DashboardPage() {
         </div>
       </div>
       <div className="flex flex-1">
-        <div className="flex-1 space-y-4 p-8 pt-6">
+        <div className="flex-1 space-y-3 p-6 pt-4">
           <DashboardShell>
             <DashboardHeader
               heading="OpenKruise Dashboard"
               text="Monitor and manage your Kubernetes extended components"
             />
-            <div className="grid gap-4 lg:grid-cols-2 items-start">
-              <div className="grid gap-4 grid-cols-2">
+            <div className="grid gap-3 lg:grid-cols-2 items-start">
+              <div className="grid gap-3 grid-cols-2">
                 <WorkloadCards />
               </div>
               <Overview />

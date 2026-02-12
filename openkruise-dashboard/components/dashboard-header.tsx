@@ -1,6 +1,4 @@
 import type React from "react"
-import { Button } from "@/components/ui/button"
-import { PlusCircle } from "lucide-react"
 
 interface DashboardHeaderProps {
   heading: string
@@ -10,16 +8,10 @@ interface DashboardHeaderProps {
 
 export function DashboardHeader({ heading, text, children }: Readonly<DashboardHeaderProps>) {
   return (
-    <div className="flex items-center justify-between px-2">
+    <div className="flex items-center justify-between px-1">
       <div className="grid gap-1">
-        <h1 className="font-heading text-3xl md:text-4xl">{heading}</h1>
-        {text && <p className="text-lg text-muted-foreground">{text}</p>}
-      </div>
-      <div className="flex items-center gap-2">
-        <Button>
-          <PlusCircle className="mr-2 h-4 w-4" aria-hidden="true" />
-          Create Resource
-        </Button>
+        <h1 className="font-heading text-2xl md:text-3xl">{heading}</h1>
+        {text && <p className="text-base text-muted-foreground">{text}</p>}
       </div>
       {children}
     </div>

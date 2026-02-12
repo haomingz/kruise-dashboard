@@ -40,7 +40,7 @@ interface WorkloadTableProps {
 export const WorkloadTable = memo(function WorkloadTable({ workloadList, type, showImage = true, loading = false }: WorkloadTableProps) {
   if (loading) {
     return (
-      <div className="flex justify-center items-center py-8">
+      <div className="flex justify-center items-center py-4">
         <Loader2 className="h-8 w-8 motion-safe:animate-spin" aria-hidden="true" />
         <span className="sr-only">Loading {type}…</span>
         <span className="ml-2">Loading {type}…</span>
@@ -50,7 +50,7 @@ export const WorkloadTable = memo(function WorkloadTable({ workloadList, type, s
 
   if (workloadList.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
+      <div className="text-center py-4 text-muted-foreground text-sm">
         No {type} found
       </div>
     )

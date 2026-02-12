@@ -5,7 +5,7 @@ interface DashboardShellProps extends React.HTMLAttributes<HTMLDivElement> {
 
 export function DashboardShell({ children, ...props }: DashboardShellProps) {
   return (
-    <div className="grid gap-8" {...props}>
+    <div className="grid gap-5" {...props}>
       {children}
     </div>
   )
