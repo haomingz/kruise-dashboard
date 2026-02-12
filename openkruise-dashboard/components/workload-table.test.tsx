@@ -36,7 +36,7 @@ describe('WorkloadTable', () => {
   it('renders loading state', () => {
     render(<WorkloadTable workloadList={[]} type="CloneSets" loading={true} />)
     // Both sr-only and visible span have the text, use getAllByText
-    const loadingTexts = screen.getAllByText('Loading CloneSets...')
+    const loadingTexts = screen.getAllByText('Loading CloneSets…')
     expect(loadingTexts.length).toBeGreaterThan(0)
   })
 
@@ -79,7 +79,7 @@ describe('WorkloadTable', () => {
     const links = screen.getAllByRole('link')
     expect(links.length).toBeGreaterThan(0)
     // Check that workload detail link exists
-    const detailLink = links.find(l => l.getAttribute('href')?.includes('/workloads/cloneset-default-test-cloneset'))
+    const detailLink = links.find(l => l.getAttribute('href')?.includes('/workloads/cloneset/default/test-cloneset'))
     expect(detailLink).toBeDefined()
   })
 })

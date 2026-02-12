@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext } from 'react'
+import { createContext, use } from 'react'
 import useSWR from 'swr'
 import { listNamespaces } from '../api/namespace'
 
@@ -21,7 +21,7 @@ export const NamespaceContext = createContext<NamespaceContextType>({
 })
 
 export function useNamespace() {
-  return useContext(NamespaceContext)
+  return use(NamespaceContext)
 }
 
 export function useNamespaceList() {

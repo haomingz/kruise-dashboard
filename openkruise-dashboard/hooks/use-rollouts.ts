@@ -1,5 +1,5 @@
 import useSWR from 'swr'
-import { getRollout, listActiveRollouts } from '../api/rollout'
+import { getRollout, listActiveRollouts, listAllRollouts } from '../api/rollout'
 import { useNamespace } from './use-namespace'
 
 const REFRESH_INTERVAL = 30000
@@ -10,6 +10,16 @@ export function useActiveRollouts(namespaceOverride?: string) {
   return useSWR(
     `active-rollouts-${ns}`,
     () => listActiveRollouts(ns).catch(() => []),
+    { refreshInterval: REFRESH_INTERVAL }
+  )
+}
+
+export function useAllRollouts(namespaceOverride?: string) {
+  const { namespace: contextNamespace } = useNamespace()
+  const ns = namespaceOverride || contextNamespace
+  return useSWR(
+    `all-rollouts-${ns}`,
+    () => listAllRollouts(ns),
     { refreshInterval: REFRESH_INTERVAL }
   )
 }

@@ -4,12 +4,12 @@ import { useState } from "react"
 import { NamespaceContext, useNamespaceList } from "../hooks/use-namespace"
 import { config } from "../lib/config"
 
-export function NamespaceProvider({ children }: { children: React.ReactNode }) {
+export function NamespaceProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [namespace, setNamespace] = useState(config.defaultNamespace)
   const { data: namespaces, isLoading } = useNamespaceList()
 
   return (
-    <NamespaceContext.Provider
+    <NamespaceContext
       value={{
         namespace,
         setNamespace,
@@ -18,6 +18,6 @@ export function NamespaceProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
-    </NamespaceContext.Provider>
+    </NamespaceContext>
   )
 }

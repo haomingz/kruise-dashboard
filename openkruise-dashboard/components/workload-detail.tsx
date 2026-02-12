@@ -1,9 +1,27 @@
 "use client"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,8 +30,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { calculateAge } from "@/lib/utils"
 import {
   AlertTriangle,
   ArrowUpDown,
@@ -31,10 +51,15 @@ import {
   XCircle
 } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { deleteWorkload, restartWorkload, scaleWorkload } from "../api/workload"
 import { useWorkloadWithPods } from "../hooks/use-workloads"
 
+function getEnvDisplayValue(env: Record<string, unknown>): string {
+  if (env.value) return env.value as string
+  if (env.valueFrom) return '[Reference]'
+  return 'N/A'
+}
 
 interface PodData {
   name: string
@@ -54,6 +79,7 @@ export function WorkloadDetail() {
 
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [showScaleDialog, setShowScaleDialog] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [scaleReplicas, setScaleReplicas] = useState<number>(0)
   const [actionError, setActionError] = useState<string | null>(null)
 
@@ -122,10 +148,6 @@ export function WorkloadDetail() {
   const handleDelete = async () => {
     if (!workloadData) return
 
-    if (!confirm(`Are you sure you want to delete this ${workloadType}? This action cannot be undone.`)) {
-      return
-    }
-
     try {
       setActionLoading('delete')
       await deleteWorkload(namespace, workloadType, name)
@@ -135,6 +157,7 @@ export function WorkloadDetail() {
       setActionError('Failed to delete workload')
     } finally {
       setActionLoading(null)
+      setShowDeleteDialog(false)
     }
   }
 
@@ -144,29 +167,10 @@ export function WorkloadDetail() {
     console.log('View YAML clicked')
   }
 
-  // Helper function to calculate age from timestamp
-  const calculateAge = (creationTimestamp?: string): string => {
-    if (!creationTimestamp) return 'Unknown'
-
-    const created = new Date(creationTimestamp)
-    const now = new Date()
-    const diffMs = now.getTime() - created.getTime()
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-    const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-
-    if (diffDays > 0) {
-      return `${diffDays}d`
-    } else if (diffHours > 0) {
-      return `${diffHours}h`
-    } else {
-      return '<1h'
-    }
-  }
-
   // Helper function to determine workload status
   const getWorkloadStatus = () => {
-    if (!workloadData || !workloadData.status) {
-      return { icon: <RefreshCw className="mr-2 h-5 w-5 text-amber-500 animate-spin" />, text: 'Loading' }
+    if (!workloadData?.status) {
+      return { icon: <RefreshCw className="mr-2 h-5 w-5 text-amber-500 motion-safe:animate-spin" aria-hidden="true" />, text: 'Loading' }
     }
 
     const spec = (workloadData.spec as Record<string, unknown>) || {}
@@ -177,11 +181,11 @@ export function WorkloadDetail() {
     const replicas = (status.replicas as number) || 0
 
     if (readyReplicas === desiredReplicas && replicas === desiredReplicas) {
-      return { icon: <CheckCircle className="mr-2 h-5 w-5 text-green-500" />, text: 'Healthy' }
+      return { icon: <CheckCircle className="mr-2 h-5 w-5 text-green-500" aria-hidden="true" />, text: 'Healthy' }
     } else if (readyReplicas === 0) {
-      return { icon: <XCircle className="mr-2 h-5 w-5 text-red-500" />, text: 'Failed' }
+      return { icon: <XCircle className="mr-2 h-5 w-5 text-red-500" aria-hidden="true" />, text: 'Failed' }
     } else {
-      return { icon: <RefreshCw className="mr-2 h-5 w-5 text-amber-500 animate-spin" />, text: 'Updating' }
+      return { icon: <RefreshCw className="mr-2 h-5 w-5 text-amber-500 motion-safe:animate-spin" aria-hidden="true" />, text: 'Updating' }
     }
   }
 
@@ -189,15 +193,15 @@ export function WorkloadDetail() {
   const getPodStatusIcon = (status: string) => {
     switch (status) {
       case 'Running':
-        return <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+        return <CheckCircle className="mr-2 h-4 w-4 text-green-500" aria-hidden="true" />
       case 'Pending':
-        return <Clock className="mr-2 h-4 w-4 text-amber-500" />
+        return <Clock className="mr-2 h-4 w-4 text-amber-500" aria-hidden="true" />
       case 'Failed':
-        return <XCircle className="mr-2 h-4 w-4 text-red-500" />
+        return <XCircle className="mr-2 h-4 w-4 text-red-500" aria-hidden="true" />
       case 'Succeeded':
-        return <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+        return <CheckCircle className="mr-2 h-4 w-4 text-green-500" aria-hidden="true" />
       default:
-        return <AlertTriangle className="mr-2 h-4 w-4 text-amber-500" />
+        return <AlertTriangle className="mr-2 h-4 w-4 text-amber-500" aria-hidden="true" />
     }
   }
 
@@ -205,8 +209,8 @@ export function WorkloadDetail() {
     return (
       <div className="container mx-auto py-6">
         <div className="flex justify-center items-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin" aria-label="Loading workload details" />
-          <span className="ml-2">Loading workload details...</span>
+          <Loader2 className="h-8 w-8 motion-safe:animate-spin" aria-hidden="true" />
+          <span className="ml-2">Loading workload details…</span>
         </div>
       </div>
     )
@@ -252,11 +256,11 @@ export function WorkloadDetail() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm">
-            <RefreshCw className="mr-2 h-4 w-4" />
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
             Refresh
           </Button>
           <Button variant="outline" size="sm">
-            <Edit className="mr-2 h-4 w-4" />
+            <Edit className="mr-2 h-4 w-4" aria-hidden="true" />
             Edit
           </Button>
           <DropdownMenu>
@@ -276,28 +280,28 @@ export function WorkloadDetail() {
                 }}
                 disabled={actionLoading !== null}
               >
-                <ArrowUpDown className="mr-2 h-4 w-4" />
-                {actionLoading === 'scale' ? 'Scaling...' : 'Scale'}
+                <ArrowUpDown className="mr-2 h-4 w-4" aria-hidden="true" />
+                {actionLoading === 'scale' ? 'Scaling…' : 'Scale'}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleRestart}
                 disabled={actionLoading !== null}
               >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                {actionLoading === 'restart' ? 'Restarting...' : 'Restart'}
+                <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+                {actionLoading === 'restart' ? 'Restarting…' : 'Restart'}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleViewYAML}>
-                <Code className="mr-2 h-4 w-4" />
+                <Code className="mr-2 h-4 w-4" aria-hidden="true" />
                 View YAML
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-red-600"
-                onClick={handleDelete}
+                onClick={() => setShowDeleteDialog(true)}
                 disabled={actionLoading !== null}
               >
-                <Trash2 className="mr-2 h-4 w-4" />
-                {actionLoading === 'delete' ? 'Deleting...' : 'Delete'}
+                <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -322,8 +326,8 @@ export function WorkloadDetail() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-between">
-              <span className="text-2xl font-bold">{readyReplicas}/{desiredReplicas}</span>
-              <Badge variant="outline">
+              <span className="text-2xl font-bold tabular-nums">{readyReplicas}/{desiredReplicas}</span>
+              <Badge variant="outline" className="tabular-nums">
                 {Math.round((readyReplicas / Math.max(desiredReplicas, 1)) * 100)}%
               </Badge>
             </div>
@@ -435,7 +439,7 @@ export function WorkloadDetail() {
                 <Collapsible className="space-y-2">
                   <div className="flex items-center justify-between space-x-4 rounded-lg border p-4">
                     <div className="flex items-center space-x-4">
-                      <Server className="h-5 w-5 text-muted-foreground" />
+                      <Server className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
                       <div>
                         <p className="text-sm font-medium leading-none">{primaryContainer.name as string}</p>
                         <p className="text-sm text-muted-foreground">{primaryContainer.image as string}</p>
@@ -453,11 +457,11 @@ export function WorkloadDetail() {
                       <div className="rounded-md border px-4 py-3 text-sm">
                         <div className="font-medium">Environment Variables</div>
                         <div className="mt-2 grid grid-cols-2 gap-2">
-                          {(primaryContainer.env as Record<string, unknown>[]).map((env: Record<string, unknown>, index: number) => (
-                            <>
-                              <div key={`key-${index}`} className="text-muted-foreground">{env.name as string}</div>
-                              <div key={`value-${index}`}>{env.value || env.valueFrom ? '[Reference]' : 'N/A'}</div>
-                            </>
+                          {(primaryContainer.env as Record<string, unknown>[]).map((env: Record<string, unknown>) => (
+                            <Fragment key={env.name as string}>
+                              <div className="text-muted-foreground">{env.name as string}</div>
+                              <div>{getEnvDisplayValue(env)}</div>
+                            </Fragment>
                           ))}
                         </div>
                       </div>
@@ -485,12 +489,12 @@ export function WorkloadDetail() {
                           <div className="text-muted-foreground">Name</div>
                           <div className="text-muted-foreground">Container Port</div>
                           <div className="text-muted-foreground">Protocol</div>
-                          {(primaryContainer.ports as Record<string, unknown>[]).map((port: Record<string, unknown>, index: number) => (
-                            <>
-                              <div key={`name-${index}`}>{port.name as string || 'N/A'}</div>
-                              <div key={`port-${index}`}>{port.containerPort as number}</div>
-                              <div key={`protocol-${index}`}>{port.protocol as string}</div>
-                            </>
+                          {(primaryContainer.ports as Record<string, unknown>[]).map((port: Record<string, unknown>) => (
+                            <Fragment key={`${port.containerPort}-${port.protocol}`}>
+                              <div>{(port.name as string) || 'N/A'}</div>
+                              <div>{port.containerPort as number}</div>
+                              <div>{port.protocol as string}</div>
+                            </Fragment>
                           ))}
                         </div>
                       </div>
@@ -536,13 +540,13 @@ export function WorkloadDetail() {
                             {pod.status}
                           </div>
                         </TableCell>
-                        <TableCell>{pod.restarts}</TableCell>
+                        <TableCell className="tabular-nums">{pod.restarts}</TableCell>
                         <TableCell>{pod.age}</TableCell>
                         <TableCell>{pod.ip}</TableCell>
                         <TableCell>{pod.node}</TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="h-4 w-4" />
+                          <Button variant="ghost" size="icon" aria-label="Pod actions">
+                            <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -563,7 +567,7 @@ export function WorkloadDetail() {
             <CardContent>
               <div className="relative">
                 <Button variant="outline" size="sm" className="absolute right-2 top-2 z-10">
-                  <ExternalLink className="mr-2 h-4 w-4" />
+                  <ExternalLink className="mr-2 h-4 w-4" aria-hidden="true" />
                   Open in Editor
                 </Button>
                 <pre className="max-h-[600px] overflow-auto rounded-lg bg-muted p-4 text-sm">
@@ -576,40 +580,66 @@ export function WorkloadDetail() {
       </Tabs>
 
       {/* Scale Dialog */}
-      {showScaleDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96">
-            <h3 className="text-lg font-semibold mb-4">Scale Workload</h3>
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">
-                Number of Replicas
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={scaleReplicas}
-                onChange={(e) => setScaleReplicas(parseInt(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowScaleDialog(false)}
-                disabled={actionLoading !== null}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleScale}
-                disabled={actionLoading !== null}
-              >
-                {actionLoading === 'scale' ? 'Scaling...' : 'Scale'}
-              </Button>
-            </div>
+      <Dialog open={showScaleDialog} onOpenChange={setShowScaleDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Scale Workload</DialogTitle>
+            <DialogDescription>
+              Adjust the number of replicas for this {workloadType}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <label htmlFor="scale-replicas" className="block text-sm font-medium mb-2">
+              Number of Replicas
+            </label>
+            <Input
+              id="scale-replicas"
+              type="number"
+              min="0"
+              value={scaleReplicas}
+              onChange={(e) => setScaleReplicas(Number.parseInt(e.target.value) || 0)}
+              autoComplete="off"
+            />
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowScaleDialog(false)}
+              disabled={actionLoading !== null}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleScale}
+              disabled={actionLoading !== null}
+            >
+              {actionLoading === 'scale' ? 'Scaling…' : 'Scale'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {workloadType}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the {workloadType} &quot;{name}&quot; in namespace &quot;{namespace}&quot;. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionLoading !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={handleDelete}
+              disabled={actionLoading !== null}
+            >
+              {actionLoading === 'delete' ? 'Deleting…' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

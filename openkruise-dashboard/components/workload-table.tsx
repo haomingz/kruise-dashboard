@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { CheckCircle, Clock, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react"
 import Link from "next/link"
+import { memo } from "react"
 
 export interface TransformedWorkload {
   name: string
@@ -16,16 +17,16 @@ export interface TransformedWorkload {
   workloadType: string
 }
 
-function StatusIcon({ status }: { status: string }) {
+function StatusIcon({ status }: Readonly<{ status: string }>) {
   switch (status) {
     case 'Healthy':
-      return <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+      return <CheckCircle className="mr-2 h-4 w-4 text-green-500" aria-hidden="true" />
     case 'Updating':
-      return <RefreshCw className="mr-2 h-4 w-4 text-amber-500 animate-spin" />
+      return <RefreshCw className="mr-2 h-4 w-4 text-amber-500 motion-safe:animate-spin" aria-hidden="true" />
     case 'Failed':
-      return <XCircle className="mr-2 h-4 w-4 text-red-500" />
+      return <XCircle className="mr-2 h-4 w-4 text-red-500" aria-hidden="true" />
     default:
-      return <Clock className="mr-2 h-4 w-4 text-amber-500" />
+      return <Clock className="mr-2 h-4 w-4 text-amber-500" aria-hidden="true" />
   }
 }
 
@@ -36,13 +37,13 @@ interface WorkloadTableProps {
   loading?: boolean
 }
 
-export function WorkloadTable({ workloadList, type, showImage = true, loading = false }: WorkloadTableProps) {
+export const WorkloadTable = memo(function WorkloadTable({ workloadList, type, showImage = true, loading = false }: WorkloadTableProps) {
   if (loading) {
     return (
       <div className="flex justify-center items-center py-8">
-        <Loader2 className="h-8 w-8 animate-spin" aria-label={`Loading ${type}`} />
-        <span className="sr-only">Loading {type}...</span>
-        <span className="ml-2">Loading {type}...</span>
+        <Loader2 className="h-8 w-8 motion-safe:animate-spin" aria-hidden="true" />
+        <span className="sr-only">Loading {type}…</span>
+        <span className="ml-2">Loading {type}…</span>
       </div>
     )
   }
@@ -94,7 +95,7 @@ export function WorkloadTable({ workloadList, type, showImage = true, loading = 
             <TableCell className="text-right">
               <Button variant="ghost" size="sm" asChild>
                 <Link href={`/workloads/${workload.workloadType}/${workload.namespace}/${workload.name}`}>
-                  <ExternalLink className="mr-2 h-4 w-4" />
+                  <ExternalLink className="mr-2 h-4 w-4" aria-hidden="true" />
                   View
                 </Link>
               </Button>
@@ -104,4 +105,4 @@ export function WorkloadTable({ workloadList, type, showImage = true, loading = 
       </TableBody>
     </Table>
   )
-}
+})

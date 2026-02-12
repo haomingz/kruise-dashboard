@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { calculateAge } from "@/lib/utils"
 import { useMemo } from "react"
 import { useAllWorkloads } from "../hooks/use-workloads"
 import { TransformedWorkload, WorkloadTable } from "./workload-table"
@@ -22,25 +23,6 @@ const INITIAL_STATE: WorkloadState = {
   sidecars: [],
   broadcastjobs: [],
   advancedcronjobs: [],
-}
-
-// Helper function to calculate age from timestamp
-function calculateAge(creationTimestamp?: string): string {
-  if (!creationTimestamp) return 'Unknown'
-
-  const created = new Date(creationTimestamp)
-  const now = new Date()
-  const diffMs = now.getTime() - created.getTime()
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-  const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-
-  if (diffDays > 0) {
-    return `${diffDays}d`
-  } else if (diffHours > 0) {
-    return `${diffHours}h`
-  } else {
-    return '<1h'
-  }
 }
 
 // Helper function to determine status from workload
@@ -65,7 +47,9 @@ function getWorkloadStatus(workload: Record<string, unknown>): string {
 function transformWorkloadData(workloads: Record<string, unknown>[], workloadType: string): TransformedWorkload[] {
   if (!Array.isArray(workloads)) return []
 
-  return workloads.map((workload) => {
+  return workloads
+    .filter((workload) => !workload.error && workload.metadata)
+    .map((workload) => {
     const metadata = (workload.metadata as Record<string, unknown>) || {}
     const spec = (workload.spec as Record<string, unknown>) || {}
     const status = (workload.status as Record<string, unknown>) || {}
@@ -136,7 +120,7 @@ export function WorkloadTabs() {
       <TabsList>
         {TAB_CONFIGS.map((tab) => (
           <TabsTrigger key={tab.key} value={tab.key}>
-            {tab.label} ({workloads[tab.key as keyof WorkloadState].length})
+            {tab.label} (<span className="tabular-nums">{workloads[tab.key as keyof WorkloadState].length}</span>)
           </TabsTrigger>
         ))}
       </TabsList>

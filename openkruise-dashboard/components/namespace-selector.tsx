@@ -22,8 +22,8 @@ export function NamespaceSelector() {
   if (isLoading && namespaces.length === 0) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        <span>Loading namespaces...</span>
+        <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />
+        <span>Loading namespaces…</span>
       </div>
     )
   }
@@ -40,12 +40,12 @@ export function NamespaceSelector() {
             className="w-[200px] justify-between"
           >
             <span className="truncate">{namespace}</span>
-            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" aria-hidden="true" />
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[200px] p-0">
           <Command>
-            <CommandInput placeholder="Search namespace..." />
+            <CommandInput placeholder="Search namespace…" />
             <CommandList>
               <CommandEmpty>No namespace found.</CommandEmpty>
               <CommandGroup>
@@ -63,6 +63,7 @@ export function NamespaceSelector() {
                         "mr-2 h-4 w-4",
                         namespace === ns ? "opacity-100" : "opacity-0"
                       )}
+                      aria-hidden="true"
                     />
                     {ns}
                   </CommandItem>

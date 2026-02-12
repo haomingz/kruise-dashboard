@@ -232,9 +232,11 @@ func ListWorkloads(c *gin.Context) {
 	response.Success(c, workloads)
 }
 
+// kruiseWorkloadGVRs defines the GVRs for listing all workloads.
+// These must stay in sync with workloadTypeRegistry in workload_types.go.
 var kruiseWorkloadGVRs = []schema.GroupVersionResource{
 	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "clonesets"},
-	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "statefulsets"},
+	{Group: "apps.kruise.io", Version: "v1beta1", Resource: "statefulsets"},
 	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "daemonsets"},
 	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "broadcastjobs"},
 	{Group: "apps.kruise.io", Version: "v1alpha1", Resource: "advancedcronjobs"},
@@ -260,9 +262,14 @@ func ListAllWorkloads(c *gin.Context) {
 
 			list, err := GetDynamicClient().Resource(gvr).Namespace(namespace).List(ctx, metav1.ListOptions{})
 			if err != nil {
+				logger.Log.Warn("Failed to list workload resource",
+					zap.String("namespace", namespace),
+					zap.String("resource", gvr.Resource),
+					zap.Error(err),
+				)
 				resultChan <- result{
 					resource: gvr.Resource,
-					data:     []interface{}{map[string]interface{}{"error": err.Error()}},
+					data:     []interface{}{},
 					err:      err,
 				}
 				return

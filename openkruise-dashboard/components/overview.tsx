@@ -9,7 +9,7 @@ interface OverviewProps extends React.HTMLAttributes<HTMLDivElement> {
   className?: string
 }
 
-export function Overview({ className, ...props }: OverviewProps) {
+export function Overview({ className, ...props }: Readonly<OverviewProps>) {
   const { data: metrics, error, isLoading } = useClusterMetrics()
 
   // Extract metrics with fallback values
@@ -27,11 +27,11 @@ export function Overview({ className, ...props }: OverviewProps) {
       <Card className={cn(className)} {...props}>
         <CardHeader>
           <CardTitle>Cluster Overview</CardTitle>
-          <CardDescription>Loading cluster metrics...</CardDescription>
+          <CardDescription>Loading cluster metrics…</CardDescription>
         </CardHeader>
         <CardContent className="pl-2">
           <div className="space-y-8">
-            <div className="animate-pulse">
+            <div className="motion-safe:animate-pulse">
               <div className="space-y-4">
                 {[1, 2, 3, 4].map((i) => (
                   <div key={i} className="flex items-center">
@@ -78,28 +78,28 @@ export function Overview({ className, ...props }: OverviewProps) {
               <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
                 <div className="flex h-full bg-primary" style={{ width: `${Math.min(cpuUsage, 100)}%` }} />
               </div>
-              <span className="ml-2 text-sm text-muted-foreground">{Math.round(cpuUsage)}%</span>
+              <span className="ml-2 text-sm tabular-nums text-muted-foreground">{Math.round(cpuUsage)}%</span>
             </div>
             <div className="flex items-center">
               <div className="mr-2 w-14 text-right text-sm font-medium">Memory</div>
               <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
                 <div className="flex h-full bg-primary" style={{ width: `${Math.min(memoryUsage, 100)}%` }} />
               </div>
-              <span className="ml-2 text-sm text-muted-foreground">{Math.round(memoryUsage)}%</span>
+              <span className="ml-2 text-sm tabular-nums text-muted-foreground">{Math.round(memoryUsage)}%</span>
             </div>
             <div className="flex items-center">
               <div className="mr-2 w-14 text-right text-sm font-medium">Storage</div>
               <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
                 <div className="flex h-full bg-primary" style={{ width: `${Math.min(storageUsage, 100)}%` }} />
               </div>
-              <span className="ml-2 text-sm text-muted-foreground">{Math.round(storageUsage)}%</span>
+              <span className="ml-2 text-sm tabular-nums text-muted-foreground">{Math.round(storageUsage)}%</span>
             </div>
             <div className="flex items-center">
               <div className="mr-2 w-14 text-right text-sm font-medium">Network</div>
               <div className="relative flex h-2 w-full overflow-hidden rounded-full bg-secondary">
                 <div className="flex h-full bg-primary" style={{ width: `${Math.min(networkUsage, 100)}%` }} />
               </div>
-              <span className="ml-2 text-sm text-muted-foreground">{Math.round(networkUsage)}%</span>
+              <span className="ml-2 text-sm tabular-nums text-muted-foreground">{Math.round(networkUsage)}%</span>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -107,22 +107,22 @@ export function Overview({ className, ...props }: OverviewProps) {
               <div className="text-sm font-medium">Nodes</div>
               <div className="flex items-center justify-between">
                 <div className="text-sm">Total</div>
-                <div className="font-medium">{nodeCount}</div>
+                <div className="font-medium tabular-nums">{nodeCount}</div>
               </div>
               <div className="flex items-center justify-between">
                 <div className="text-sm">Ready</div>
-                <div className="font-medium">{readyNodes}</div>
+                <div className="font-medium tabular-nums">{readyNodes}</div>
               </div>
             </div>
             <div className="space-y-2">
               <div className="text-sm font-medium">Pods</div>
               <div className="flex items-center justify-between">
                 <div className="text-sm">Total</div>
-                <div className="font-medium">{podCount}</div>
+                <div className="font-medium tabular-nums">{podCount}</div>
               </div>
               <div className="flex items-center justify-between">
                 <div className="text-sm">Running</div>
-                <div className="font-medium">{runningPods}</div>
+                <div className="font-medium tabular-nums">{runningPods}</div>
               </div>
             </div>
           </div>

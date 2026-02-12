@@ -26,10 +26,12 @@ export function DashboardPage() {
               heading="OpenKruise Dashboard"
               text="Monitor and manage your Kubernetes extended components"
             />
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <WorkloadCards />
+            <div className="grid gap-4 lg:grid-cols-2 items-start">
+              <div className="grid gap-4 grid-cols-2">
+                <WorkloadCards />
+              </div>
+              <Overview />
             </div>
-            <Overview />
             <WorkloadTabs />
             <RolloutVisualization />
           </DashboardShell>
