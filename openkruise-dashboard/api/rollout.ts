@@ -23,6 +23,30 @@ export interface Rollout {
     [key: string]: any;
 }
 
+export interface ContainerInfo {
+    name: string;
+    image: string;
+}
+
+export interface RevisionInfo {
+    name: string;
+    revision: string;
+    podTemplateHash: string;
+    isStable: boolean;
+    isCanary: boolean;
+    replicas: number;
+    readyReplicas: number;
+    pods: any[];
+    containers: ContainerInfo[];
+}
+
+export interface RolloutPodsResponse {
+    pods: any[];
+    workloadRef: any;
+    revisions?: RevisionInfo[];
+    containers?: ContainerInfo[];
+}
+
 /**
  * Get a specific rollout by namespace and name
  */
@@ -120,6 +144,30 @@ export const approveRollout = async (namespace: string, name: string): Promise<v
 };
 
 /**
+ * Abort a rollout (sets spec.disabled = true)
+ */
+export const abortRollout = async (namespace: string, name: string): Promise<void> => {
+    try {
+        await axiosInstance.post(`/rollout/abort/${namespace}/${name}`);
+    } catch (error) {
+        console.error(`Error aborting rollout ${namespace}/${name}:`, error);
+        throw error;
+    }
+};
+
+/**
+ * Retry a rollout (unpause + add retry annotation)
+ */
+export const retryRollout = async (namespace: string, name: string): Promise<void> => {
+    try {
+        await axiosInstance.post(`/rollout/retry/${namespace}/${name}`);
+    } catch (error) {
+        console.error(`Error retrying rollout ${namespace}/${name}:`, error);
+        throw error;
+    }
+};
+
+/**
  * List all rollouts in a namespace
  */
 export const listAllRollouts = async (namespace: string): Promise<{ rollouts: Rollout[], total: number, namespace: string }> => {
@@ -156,4 +204,17 @@ export const listDefaultRollouts = async (): Promise<{ rollouts: Rollout[], tota
         console.error(`Error listing rollouts in default namespace:`, error);
         throw error;
     }
-}; 
+};
+
+/**
+ * Get pods related to a rollout's referenced workload (includes revision grouping)
+ */
+export const getRolloutPods = async (namespace: string, name: string): Promise<RolloutPodsResponse> => {
+    try {
+        const response = await axiosInstance.get(`/rollout/${namespace}/${name}/pods`);
+        return response.data;
+    } catch (error) {
+        console.error(`Error fetching rollout pods for ${namespace}/${name}:`, error);
+        throw error;
+    }
+};

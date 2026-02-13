@@ -63,6 +63,7 @@ func main() {
 		rollout := api.Group("/rollout")
 		{
 			rollout.GET("/:namespace/:name", handlers.GetRollout)
+			rollout.GET("/:namespace/:name/pods", handlers.GetRolloutPods)
 			rollout.GET("/status/:namespace/:name", handlers.GetRolloutStatus)
 			rollout.GET("/history/:namespace/:name", handlers.GetRolloutHistory)
 			rollout.POST("/pause/:namespace/:name", handlers.PauseRollout)
@@ -70,6 +71,8 @@ func main() {
 			rollout.POST("/undo/:namespace/:name", handlers.UndoRollout)
 			rollout.POST("/restart/:namespace/:name", handlers.RestartRollout)
 			rollout.POST("/approve/:namespace/:name", handlers.ApproveRollout)
+			rollout.POST("/abort/:namespace/:name", handlers.AbortRollout)
+			rollout.POST("/retry/:namespace/:name", handlers.RetryRollout)
 			rollout.GET("/list/:namespace", handlers.ListAllRollouts)
 			rollout.GET("/active/:namespace", handlers.ListActiveRollouts)
 		}

@@ -37,19 +37,26 @@ export interface TransformedRollout {
   stableReplicas: number
   age: string
   workloadRef: string
+  workloadRefKind: string
   displayStep: number
   isCompleted: boolean
   progressPct: number
   trafficPercent: number
+  message?: string
+  paused?: boolean
 }
 
 export interface TransformedRolloutDetail extends TransformedRollout {
   steps: RolloutStep[]
   trafficRoutings?: TrafficRouting[]
-  message?: string
   observedGeneration?: number
   creationTimestamp?: string
   uid?: string
+  rawCanaryStatus?: Record<string, unknown>
+  rawBlueGreenStatus?: Record<string, unknown>
+  stableRevisionHash?: string
+  canaryRevisionHash?: string
+  actualWeight?: number
 }
 
 /**
@@ -152,6 +159,9 @@ export function transformRollout(rollout: Record<string, unknown>): TransformedR
   const strategy = resolveStrategy(specStrategy)
   const progress = computeProgress(specStrategy, status)
 
+  const workloadRefObj = (spec.workloadRef as Record<string, unknown>) || {}
+  const specPaused = spec.paused as boolean | undefined
+
   return {
     name: (metadata.name as string) || 'Unknown',
     namespace: (metadata.namespace as string) || 'default',
@@ -163,11 +173,14 @@ export function transformRollout(rollout: Record<string, unknown>): TransformedR
     canaryReplicas: (canaryStatus.canaryReplicas as number) || 0,
     stableReplicas: (canaryStatus.stableReplicas as number) || 0,
     age: calculateAge(metadata.creationTimestamp as string),
-    workloadRef: ((spec.workloadRef as Record<string, unknown>)?.name as string) || 'Unknown',
+    workloadRef: (workloadRefObj.name as string) || 'Unknown',
+    workloadRefKind: (workloadRefObj.kind as string) || 'Deployment',
     displayStep: progress.displayStep,
     isCompleted: progress.isCompleted,
     progressPct: progress.progressPct,
     trafficPercent: progress.trafficPercent,
+    message: (status.message as string) || undefined,
+    paused: specPaused ?? false,
   }
 }
 
@@ -183,14 +196,33 @@ export function transformRolloutDetail(rolloutData: Record<string, unknown>): Tr
 
   const progress = computeProgress(specStrategy, status)
 
+  const canaryStatus = (status.canaryStatus as Record<string, unknown>) || {}
+  const stableRevisionHash = (canaryStatus.stableRevision as string) || undefined
+  const canaryRevisionHash = (canaryStatus.canaryRevision as string) || (canaryStatus.podTemplateHash as string) || undefined
+
+  // Compute actual weight from canaryStatus if available
+  let actualWeight: number | undefined
+  const currentStepState = canaryStatus.currentStepState as string | undefined
+  if (currentStepState === 'StepUpgrade' || currentStepState === 'StepPaused') {
+    // During rollout, actual weight may differ from set weight
+    const weight = canaryStatus.canaryWeight as number | undefined
+    if (weight !== undefined) {
+      actualWeight = weight
+    }
+  }
+
   return {
     ...base,
     steps: progress.steps,
     trafficRoutings: ((specStrategy?.blueGreen as Record<string, unknown>)?.trafficRoutings as TrafficRouting[]) || [],
-    message: status.message as string,
     observedGeneration: status.observedGeneration as number,
     creationTimestamp: metadata.creationTimestamp as string,
     uid: metadata.uid as string,
+    rawCanaryStatus: (status.canaryStatus as Record<string, unknown>) || undefined,
+    rawBlueGreenStatus: (status.blueGreenStatus as Record<string, unknown>) || undefined,
+    stableRevisionHash,
+    canaryRevisionHash,
+    actualWeight,
   }
 }
 
@@ -199,4 +231,43 @@ export function transformRolloutDetail(rolloutData: Record<string, unknown>): Tr
  */
 export function transformRolloutList(rollouts: Record<string, unknown>[]): TransformedRollout[] {
   return rollouts.map(transformRollout)
+}
+
+/**
+ * Identify step type and produce a human-readable label.
+ */
+export function getStepTypeLabel(step: RolloutStep): { type: string; label: string } {
+  if (step.traffic !== undefined) {
+    const raw = String(step.traffic).replace(/%$/, '')
+    return { type: 'setWeight', label: `Set Weight: ${raw}%` }
+  }
+  if (step.pause) {
+    return { type: 'pause', label: 'Pause' }
+  }
+  if (step.replicas !== undefined) {
+    return { type: 'replicas', label: `Replicas: ${step.replicas}` }
+  }
+  return { type: 'unknown', label: 'Step' }
+}
+
+/**
+ * Return Tailwind color class name for a given rollout phase.
+ */
+export function getPhaseColor(phase: string): string {
+  switch (phase) {
+    case 'Healthy':
+    case 'Completed':
+      return 'text-green-500'
+    case 'Progressing':
+      return 'text-blue-500'
+    case 'Paused':
+      return 'text-orange-500'
+    case 'Failed':
+    case 'Degraded':
+      return 'text-red-500'
+    case 'Cancelled':
+      return 'text-gray-500'
+    default:
+      return 'text-gray-400'
+  }
 }
