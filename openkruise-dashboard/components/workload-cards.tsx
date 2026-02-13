@@ -76,10 +76,10 @@ function WorkloadCard({ config, data, formatStatusText }: Readonly<WorkloadCardP
   const Icon = config.icon
 
   return (
-    <Card className="transition-colors hover:border-foreground/15 min-w-0 gap-2 py-3">
+    <Card className="min-w-0 gap-2 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-border hover:shadow-md">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 p-0 px-3 pt-0">
         <CardTitle className="text-xs sm:text-sm font-medium truncate pr-2">{config.title}</CardTitle>
-        <div className="rounded-md bg-muted p-1.5 shrink-0">
+        <div className="rounded-md bg-muted/80 p-1.5 shrink-0">
           <Icon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
         </div>
       </CardHeader>

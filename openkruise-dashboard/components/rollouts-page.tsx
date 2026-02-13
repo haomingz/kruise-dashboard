@@ -84,12 +84,10 @@ function RolloutsTable({
   rollouts,
   favoriteKeys,
   onToggleFavorite,
-  selectedRolloutKey,
 }: Readonly<{
   rollouts: TransformedRollout[]
   favoriteKeys: Set<string>
   onToggleFavorite: (key: string) => void
-  selectedRolloutKey: string | null
 }>) {
   if (rollouts.length === 0) {
     return <div className="py-12 text-center text-sm text-muted-foreground">No rollouts found</div>
@@ -114,19 +112,19 @@ function RolloutsTable({
         <TableBody>
           {rollouts.map((rollout) => {
             const key = rolloutKey(rollout)
+            const isFavorite = favoriteKeys.has(key)
             return (
-              <TableRow
-                key={key}
-                className={cn(selectedRolloutKey === key && "bg-blue-50/70")}
-              >
+              <TableRow key={key}>
                 <TableCell>
                   <Button
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7"
+                    aria-label={isFavorite ? `Remove ${rollout.name} from favorites` : `Add ${rollout.name} to favorites`}
+                    aria-pressed={isFavorite}
                     onClick={() => onToggleFavorite(key)}
                   >
-                    <Star className={cn("h-3.5 w-3.5", favoriteKeys.has(key) && "fill-current text-amber-500")} />
+                    <Star className={cn("h-3.5 w-3.5", isFavorite && "fill-current text-amber-500")} />
                   </Button>
                 </TableCell>
                 <TableCell className="font-medium">
@@ -179,7 +177,10 @@ function RolloutsTable({
                 <TableCell className="tabular-nums text-sm">{rollout.age}</TableCell>
                 <TableCell className="text-right">
                   <Button variant="ghost" size="sm" asChild>
-                    <Link href={`/rollouts/${rollout.namespace}/${rollout.name}`}>
+                    <Link
+                      href={`/rollouts/${rollout.namespace}/${rollout.name}`}
+                      aria-label={`Open rollout ${rollout.name}`}
+                    >
                       <ExternalLink className="h-4 w-4" />
                     </Link>
                   </Button>
@@ -216,7 +217,6 @@ export function RolloutsPage() {
   const [onlyNeedsAttention, setOnlyNeedsAttention] = useState(searchParams.get("needs") === "1")
   const [favoritesOnly, setFavoritesOnly] = useState(searchParams.get("fav") === "1")
   const [showShortcutHelp, setShowShortcutHelp] = useState(false)
-  const [selectedIndex, setSelectedIndex] = useState<number>(-1)
   const [favorites, setFavorites] = useState<string[]>(() => {
     if (typeof window === "undefined") {
       return []
@@ -247,6 +247,8 @@ export function RolloutsPage() {
     localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites))
   }, [favorites])
 
+  const currentQuery = searchParams.toString()
+
   useEffect(() => {
     const params = new URLSearchParams()
     if (searchQuery.trim()) {
@@ -262,12 +264,11 @@ export function RolloutsPage() {
       params.set("fav", "1")
     }
     const nextQuery = params.toString()
-    const currentQuery = searchParams.toString()
     if (nextQuery !== currentQuery) {
       const target = nextQuery ? `${pathname}?${nextQuery}` : pathname
       router.replace(target, { scroll: false })
     }
-  }, [favoritesOnly, onlyNeedsAttention, pathname, router, searchParams, searchQuery, selectedStatusFilters])
+  }, [currentQuery, favoritesOnly, onlyNeedsAttention, pathname, router, searchQuery, selectedStatusFilters])
 
   const allRollouts = useMemo(() => {
     if (!rawData?.rollouts) return []
@@ -362,52 +363,11 @@ export function RolloutsPage() {
         searchInputRef.current?.focus()
         return
       }
-      if (event.key === "Escape") {
-        setSelectedIndex(-1)
-        return
-      }
-      if (event.key === "ArrowDown") {
-        if (filteredRollouts.length === 0) return
-        event.preventDefault()
-        setSelectedIndex((index) => Math.min(index + 1, filteredRollouts.length - 1))
-        return
-      }
-      if (event.key === "ArrowUp") {
-        if (filteredRollouts.length === 0) return
-        event.preventDefault()
-        setSelectedIndex((index) => Math.max(index - 1, 0))
-        return
-      }
-      if (event.key === "Enter") {
-        const currentIndex =
-          filteredRollouts.length === 0
-            ? -1
-            : selectedIndex < 0
-              ? 0
-              : Math.min(selectedIndex, filteredRollouts.length - 1)
-        if (currentIndex < 0 || currentIndex >= filteredRollouts.length) return
-        const rollout = filteredRollouts[currentIndex]
-        if (!rollout) return
-        router.push(`/rollouts/${rollout.namespace}/${rollout.name}`)
-      }
     }
 
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [filteredRollouts, router, selectedIndex])
-
-  const normalizedSelectedIndex =
-    filteredRollouts.length === 0
-      ? -1
-      : selectedIndex < 0
-        ? 0
-        : Math.min(selectedIndex, filteredRollouts.length - 1)
-
-  const selectedRollout =
-    normalizedSelectedIndex >= 0 && normalizedSelectedIndex < filteredRollouts.length
-      ? filteredRollouts[normalizedSelectedIndex]
-      : null
-  const selectedRolloutKey = selectedRollout ? rolloutKey(selectedRollout) : null
+  }, [])
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-muted/40">
@@ -439,6 +399,7 @@ export function RolloutsPage() {
                 <Button
                   variant={viewMode === "grid" ? "secondary" : "ghost"}
                   size="sm"
+                  aria-label="Grid view"
                   onClick={() => setViewMode("grid")}
                   className="h-8 w-8 p-0"
                 >
@@ -447,6 +408,7 @@ export function RolloutsPage() {
                 <Button
                   variant={viewMode === "table" ? "secondary" : "ghost"}
                   size="sm"
+                  aria-label="Table view"
                   onClick={() => setViewMode("table")}
                   className="h-8 w-8 p-0"
                 >
@@ -498,10 +460,17 @@ export function RolloutsPage() {
           </div>
 
           <div className="relative">
+            <label htmlFor="rollouts-search" className="sr-only">
+              Search rollouts
+            </label>
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
+              id="rollouts-search"
+              name="rollouts-search"
+              aria-label="Search rollouts"
+              autoComplete="off"
               ref={searchInputRef}
-              placeholder="Search rollouts (supports name,label:value,comma separated)..."
+              placeholder="Search rollouts (supports name,label:value,comma separated)…"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               className="pl-9"
@@ -520,7 +489,7 @@ export function RolloutsPage() {
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-muted-foreground">Loading rollouts...</span>
+              <span className="ml-2 text-muted-foreground">Loading rollouts…</span>
             </div>
           ) : viewMode === "grid" ? (
             filteredRollouts.length === 0 ? (
@@ -528,21 +497,24 @@ export function RolloutsPage() {
                 {allRollouts.length === 0 ? "No rollouts found in this namespace" : "No rollouts match your filters"}
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 [content-visibility:auto] [contain-intrinsic-size:1px_1000px] md:grid-cols-2 lg:grid-cols-3">
                 {filteredRollouts.map((rollout) => {
                   const key = rolloutKey(rollout)
+                  const isFavorite = favoriteKeys.has(key)
                   return (
                     <div
                       key={key}
-                      className={cn("relative rounded-xl", selectedRolloutKey === key && "ring-2 ring-blue-400")}
+                      className="relative rounded-xl transition-transform duration-150 hover:-translate-y-0.5"
                     >
                       <Button
                         variant="secondary"
                         size="icon"
                         className="absolute right-2 top-2 z-10 h-7 w-7"
+                        aria-label={isFavorite ? `Remove ${rollout.name} from favorites` : `Add ${rollout.name} to favorites`}
+                        aria-pressed={isFavorite}
                         onClick={() => toggleFavorite(key)}
                       >
-                        <Star className={cn("h-3.5 w-3.5", favoriteKeys.has(key) && "fill-current text-amber-500")} />
+                        <Star className={cn("h-3.5 w-3.5", isFavorite && "fill-current text-amber-500")} />
                       </Button>
                       <RolloutCard rollout={rollout} />
                     </div>
@@ -555,7 +527,6 @@ export function RolloutsPage() {
               rollouts={filteredRollouts}
               favoriteKeys={favoriteKeys}
               onToggleFavorite={toggleFavorite}
-              selectedRolloutKey={selectedRolloutKey}
             />
           )}
         </div>
@@ -569,9 +540,6 @@ export function RolloutsPage() {
           </DialogHeader>
           <div className="space-y-2 text-sm">
             <div className="flex items-center justify-between"><span>Focus search</span><code>/</code></div>
-            <div className="flex items-center justify-between"><span>Move selection</span><code>↑ / ↓</code></div>
-            <div className="flex items-center justify-between"><span>Open selected rollout</span><code>Enter</code></div>
-            <div className="flex items-center justify-between"><span>Clear selection</span><code>Esc</code></div>
             <div className="flex items-center justify-between"><span>Open shortcut help</span><code>Shift + H</code></div>
           </div>
         </DialogContent>

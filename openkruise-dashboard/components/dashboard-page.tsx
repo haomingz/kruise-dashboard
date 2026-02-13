@@ -1,11 +1,32 @@
+import dynamic from "next/dynamic"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { DashboardShell } from "@/components/dashboard-shell"
 import { MainNav } from "@/components/main-nav"
 import { NamespaceSelector } from "@/components/namespace-selector"
 import { Overview } from "@/components/overview"
-import { RolloutVisualization } from "@/components/rollout-visualization"
 import { WorkloadCards } from "@/components/workload-cards"
-import { WorkloadTabs } from "@/components/workload-tabs"
+
+const WorkloadTabs = dynamic(
+  () => import("@/components/workload-tabs").then((mod) => mod.WorkloadTabs),
+  {
+    loading: () => (
+      <div className="rounded-lg border bg-background p-4 text-sm text-muted-foreground">
+        Loading workloads…
+      </div>
+    ),
+  },
+)
+
+const RolloutVisualization = dynamic(
+  () => import("@/components/rollout-visualization").then((mod) => mod.RolloutVisualization),
+  {
+    loading: () => (
+      <div className="rounded-lg border bg-background p-4 text-sm text-muted-foreground">
+        Loading rollout visualization…
+      </div>
+    ),
+  },
+)
 
 export function DashboardPage() {
 
