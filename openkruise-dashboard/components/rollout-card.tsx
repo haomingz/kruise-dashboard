@@ -27,10 +27,10 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useState, useCallback } from "react"
-import { restartRollout, approveRollout, abortRollout, retryRollout } from "@/api/rollout"
+import { restartRollout, approveRollout, abortRollout, retryRollout, promoteRollout } from "@/api/rollout"
 import { useSWRConfig } from "swr"
 
-type CardAction = "restart" | "retry" | "approve" | "abort"
+type CardAction = "restart" | "retry" | "promote" | "approve" | "abort"
 
 export function RolloutCard({ rollout }: Readonly<{ rollout: TransformedRollout }>) {
   const { mutate } = useSWRConfig()
@@ -170,6 +170,15 @@ export function RolloutCard({ rollout }: Readonly<{ rollout: TransformedRollout 
               confirmTitle="Abort Rollout?"
               confirmDesc={`This will abort the rollout "${rollout.name}" by disabling it.`}
               onConfirm={() => handleAction("abort", () => abortRollout(rollout.namespace, rollout.name))}
+            />
+            <CardActionBtn
+              label="PROMOTE"
+              icon={ArrowUpCircle}
+              loading={actionLoading === "promote"}
+              disabled={actionLoading !== null}
+              confirmTitle="Promote Rollout?"
+              confirmDesc={`This will promote rollout "${rollout.name}" to the next step.`}
+              onConfirm={() => handleAction("promote", () => promoteRollout(rollout.namespace, rollout.name))}
             />
             <CardActionBtn
               label="PROMOTE-FULL"

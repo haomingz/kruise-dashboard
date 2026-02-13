@@ -3,7 +3,14 @@ import { calculateAge } from './utils'
 export interface RolloutStep {
   traffic?: string | number
   replicas?: string | number
-  pause?: boolean
+  pause?: boolean | { duration?: string | number }
+  analysis?: Record<string, unknown>
+  experiment?: Record<string, unknown>
+  setCanaryScale?: Record<string, unknown>
+  setHeaderRoute?: Record<string, unknown>
+  setMirrorRoute?: Record<string, unknown>
+  plugin?: Record<string, unknown>
+  [key: string]: unknown
 }
 
 export interface TrafficRouting {
@@ -28,6 +35,7 @@ export interface RolloutStepProgress {
 export interface TransformedRollout {
   name: string
   namespace: string
+  labels?: Record<string, string>
   strategy: string
   status: string
   phase: string
@@ -165,6 +173,7 @@ export function transformRollout(rollout: Record<string, unknown>): TransformedR
   return {
     name: (metadata.name as string) || 'Unknown',
     namespace: (metadata.namespace as string) || 'default',
+    labels: (metadata.labels as Record<string, string>) || {},
     strategy,
     status: (status.phase as string) || 'Unknown',
     phase: (status.phase as string) || 'Unknown',
@@ -241,7 +250,29 @@ export function getStepTypeLabel(step: RolloutStep): { type: string; label: stri
     const raw = String(step.traffic).replace(/%$/, '')
     return { type: 'setWeight', label: `Set Weight: ${raw}%` }
   }
+  if (step.analysis !== undefined) {
+    return { type: 'analysis', label: 'Analysis' }
+  }
+  if (step.experiment !== undefined) {
+    return { type: 'experiment', label: 'Experiment' }
+  }
+  if (step.setCanaryScale !== undefined) {
+    return { type: 'setCanaryScale', label: 'Set Canary Scale' }
+  }
+  if (step.setHeaderRoute !== undefined) {
+    return { type: 'setHeaderRoute', label: 'Set Header Route' }
+  }
+  if (step.setMirrorRoute !== undefined) {
+    return { type: 'setMirrorRoute', label: 'Set Mirror Route' }
+  }
+  if (step.plugin !== undefined) {
+    return { type: 'plugin', label: 'Plugin' }
+  }
   if (step.pause) {
+    const pause = step.pause
+    if (typeof pause === 'object' && pause !== null && pause.duration !== undefined) {
+      return { type: 'pause', label: `Pause: ${pause.duration}` }
+    }
     return { type: 'pause', label: 'Pause' }
   }
   if (step.replicas !== undefined) {

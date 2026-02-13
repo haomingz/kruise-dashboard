@@ -6,6 +6,13 @@
 
 - 实时查看 CloneSet、StatefulSet、DaemonSet、BroadcastJob 等工作负载
 - 渐进式发布（Rollout）的监控与控制
+- Rollout Watch（SSE）优先 + 自动回退轮询
+- Promote / Promote-Full 语义拆分
+- Rollback（第一阶段支持 Deployment）
+- Analysis 占位弹窗（Summary + Metrics）
+- Rollout 列表高级筛选（收藏、Needs Attention、多状态、label:value、多关键字）
+- 键盘快捷键（`/`、方向键、`Enter`、`Esc`、`Shift+H`）
+- 容器与 initContainer 镜像编辑
 - 工作负载扩缩容、重启、删除操作
 - Pod 详情和状态查看
 - 集群资源使用概览
@@ -25,6 +32,9 @@ npm install
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8080/api/v1
 NEXT_PUBLIC_DEFAULT_NAMESPACE=default
+NEXT_PUBLIC_ROLLOUT_WATCH_ENABLED=true
+NEXT_PUBLIC_ROLLOUT_ANALYSIS_ENABLED=true
+NEXT_PUBLIC_ROLLBACK_ENABLED=true
 ```
 
 ### 3. 启动开发服务器
@@ -44,8 +54,9 @@ openkruise-dashboard/
 ├── app/                             # Next.js App Router 页面
 │   ├── layout.tsx                   # 根布局（字体、元数据）
 │   ├── page.tsx                     # 首页（Dashboard）
-│   ├── rollouts/[id]/page.tsx       # Rollout 详情页
-│   └── workloads/[id]/page.tsx      # 工作负载详情页
+│   ├── rollouts/page.tsx            # Rollout 列表页
+│   ├── rollouts/[namespace]/[name]/page.tsx
+│   └── workloads/[type]/[namespace]/[name]/page.tsx
 ├── components/                      # React 组件
 │   ├── dashboard-header.tsx         # 顶部导航
 │   ├── dashboard-page.tsx           # 页面布局
@@ -53,8 +64,13 @@ openkruise-dashboard/
 │   ├── main-nav.tsx                 # 主导航栏
 │   ├── overview.tsx                 # 集群概览
 │   ├── recent-activity.tsx          # 最近活动
-│   ├── rollout-detail.tsx           # Rollout 详情
-│   ├── rollout-visualization.tsx    # Rollout 可视化
+│   ├── rollouts-page.tsx            # Rollout 列表（watch + 筛选 + 快捷键）
+│   ├── rollout-card.tsx             # Rollout 卡片
+│   ├── rollout-detail-enhanced.tsx  # Rollout 详情页
+│   ├── rollout-analysis-modal.tsx   # Analysis 弹窗
+│   ├── rollout-revisions.tsx        # Revisions + rollback 入口
+│   ├── rollout-containers.tsx       # 容器镜像编辑
+│   ├── rollout-steps-pipeline.tsx   # Steps 流水线
 │   ├── workload-cards.tsx           # 工作负载卡片
 │   ├── workload-detail.tsx          # 工作负载详情
 │   ├── workload-table.tsx           # 工作负载表格
@@ -75,17 +91,21 @@ openkruise-dashboard/
 ├── api/                             # API 客户端层
 │   ├── axiosInstance.ts             # Axios 实例配置
 │   ├── cluster.ts                   # 集群指标 API
-│   ├── rollout.ts                   # Rollout 管理 API
+│   ├── rollout.ts                   # Rollout 管理 API（含 watch/promote/rollback/analysis）
 │   ├── workload.ts                  # 工作负载管理 API
-│   └── index.ts                     # 统一导出
+│   └── namespace.ts                 # 命名空间 API
 ├── hooks/                           # SWR 数据请求 Hooks
 │   ├── use-cluster.ts               # useClusterMetrics()
 │   ├── use-workloads.ts             # useAllWorkloads(), useWorkloadWithPods()
-│   └── use-rollouts.ts              # useActiveRollouts(), useRollout()
+│   ├── use-rollouts.ts              # Rollout SWR hooks
+│   ├── use-rollouts-watch.ts        # Rollout SSE watch hook
+│   └── use-rollout-analysis.ts      # Analysis hook
 ├── lib/                             # 工具函数
-│   ├── config.ts                    # 应用配置（API 地址、默认命名空间）
+│   ├── config.ts                    # 应用配置（含 feature flags）
+│   ├── watch-client.ts              # SSE watch 客户端
 │   ├── config.test.ts               # 配置测试
-│   └── utils.ts                     # CSS 工具函数
+│   ├── rollout-utils.ts             # Rollout 转换与步骤标签
+│   └── utils.ts                     # 通用工具函数
 ├── vitest.config.ts                 # Vitest 测试配置
 ├── vitest.setup.ts                  # 测试环境初始化
 ├── tailwind.config.js               # Tailwind CSS 配置
@@ -105,7 +125,7 @@ openkruise-dashboard/
 | UI 组件 | shadcn/ui (Radix UI) | - |
 | 图标 | Lucide React | 0.563.0 |
 | HTTP 客户端 | Axios | 1.13.5 |
-| 数据请求 | SWR（30 秒自动刷新） | 2.4.0 |
+| 数据请求 | SWR + SSE Watch fallback | 2.4.0 |
 | 测试 | Vitest + React Testing Library | Vitest 4.0 |
 | 格式化 | Prettier + ESLint | - |
 
@@ -126,6 +146,9 @@ npm run test:watch     # 测试监听模式
 |------|------|--------|
 | `NEXT_PUBLIC_API_BASE_URL` | 后端 API 地址 | `http://localhost:8080/api/v1` |
 | `NEXT_PUBLIC_DEFAULT_NAMESPACE` | 默认 Kubernetes 命名空间 | `default` |
+| `NEXT_PUBLIC_ROLLOUT_WATCH_ENABLED` | 启用 Rollout Watch | `true` |
+| `NEXT_PUBLIC_ROLLOUT_ANALYSIS_ENABLED` | 启用 Analysis UI | `true` |
+| `NEXT_PUBLIC_ROLLBACK_ENABLED` | 启用 Rollback 按钮 | `true` |
 
 ## 开发指南
 
@@ -139,7 +162,8 @@ npm run test:watch     # 测试监听模式
 
 - 所有 API 调用通过 `api/` 目录封装，不要内联使用 fetch 或 axios
 - Axios 实例在 `api/axiosInstance.ts` 中配置，默认超时 10 秒
-- 使用 `hooks/` 目录下的 SWR Hooks 获取数据，自动缓存和 30 秒轮询
+- 使用 `hooks/` 目录下的 SWR Hooks 获取数据
+- Rollout 页面优先使用 SSE Watch，失败后自动回退 SWR 轮询
 
 ### 添加新功能
 

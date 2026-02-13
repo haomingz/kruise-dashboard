@@ -56,11 +56,15 @@ interface RolloutRevisionsProps {
   rolloutName?: string
   namespace?: string
   onRollback?: (revision: RevisionInfo) => void
+  rollbackEnabled?: boolean
+  rollbackDisabledReason?: string
 }
 
 export function RolloutRevisions({
   revisions,
   onRollback,
+  rollbackEnabled = true,
+  rollbackDisabledReason,
 }: Readonly<RolloutRevisionsProps>) {
   if (!revisions || revisions.length === 0) {
     return (
@@ -84,6 +88,8 @@ export function RolloutRevisions({
           revision={rev}
           defaultOpen={defaultOpen[rev.name] ?? false}
           onRollback={onRollback}
+          rollbackEnabled={rollbackEnabled}
+          rollbackDisabledReason={rollbackDisabledReason}
         />
       ))}
     </div>
@@ -94,10 +100,14 @@ function RevisionItem({
   revision,
   defaultOpen,
   onRollback,
+  rollbackEnabled,
+  rollbackDisabledReason,
 }: Readonly<{
   revision: RevisionInfo
   defaultOpen: boolean
   onRollback?: (revision: RevisionInfo) => void
+  rollbackEnabled: boolean
+  rollbackDisabledReason?: string
 }>) {
   const [open, setOpen] = useState(defaultOpen)
   const isOld = !revision.isCanary && !revision.isStable
@@ -173,7 +183,13 @@ function RevisionItem({
               <div className="pt-1">
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="text-xs gap-1.5 h-7">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs gap-1.5 h-7"
+                      disabled={!rollbackEnabled}
+                      title={!rollbackEnabled ? rollbackDisabledReason || "Rollback unavailable" : undefined}
+                    >
                       <Undo2 className="h-3 w-3" />
                       ROLLBACK
                     </Button>

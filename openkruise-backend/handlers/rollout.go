@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -13,9 +14,12 @@ import (
 	"github.com/openkruise/kruise-dashboard/extensions-backend/pkg/logger"
 	"github.com/openkruise/kruise-dashboard/extensions-backend/pkg/response"
 	"go.uber.org/zap"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/watch"
 )
 
 const (
@@ -23,6 +27,21 @@ const (
 	rolloutResource           = "rollouts"
 	rolloutAPIVersionV1beta1  = "v1beta1"
 	rolloutAPIVersionV1alpha1 = "v1alpha1"
+
+	watchEventUpsert    = "upsert"
+	watchEventDelete    = "delete"
+	watchEventSnapshot  = "snapshot"
+	watchEventError     = "error"
+	watchEventHeartbeat = "heartbeat"
+
+	watchResourceType = "rollout"
+
+	errorCodeUnsupportedRollbackKind = "UNSUPPORTED_ROLLBACK_KIND"
+	errorCodeWatchStreamUnavailable  = "WATCH_STREAM_UNAVAILABLE"
+	errorCodeAnalysisNotConfigured   = "ANALYSIS_SOURCE_NOT_CONFIGURED"
+	errorCodeRolloutNotPromotable    = "ROLLOUT_NOT_PROMOTABLE"
+
+	rolloutHeartbeatInterval = 20 * time.Second
 )
 
 var rolloutGVR = schema.GroupVersionResource{
@@ -31,12 +50,231 @@ var rolloutGVR = schema.GroupVersionResource{
 	Resource: rolloutResource,
 }
 
+var deploymentGVR = schema.GroupVersionResource{
+	Group:    "apps",
+	Version:  "v1",
+	Resource: "deployments",
+}
+
+var replicaSetGVR = schema.GroupVersionResource{
+	Group:    "apps",
+	Version:  "v1",
+	Resource: "replicasets",
+}
+
 func rolloutGVRForVersion(version string) schema.GroupVersionResource {
 	return schema.GroupVersionResource{
 		Group:    rolloutAPIGroup,
 		Version:  version,
 		Resource: rolloutResource,
 	}
+}
+
+func writeRolloutSSEEvent(c *gin.Context, eventType string, payload map[string]interface{}) bool {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		logger.Log.Error("Failed to marshal rollout watch payload", zap.Error(err))
+		return false
+	}
+
+	if _, err = fmt.Fprintf(c.Writer, "event: %s\n", eventType); err != nil {
+		return false
+	}
+	if _, err = fmt.Fprintf(c.Writer, "data: %s\n\n", data); err != nil {
+		return false
+	}
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		return false
+	}
+	flusher.Flush()
+	return true
+}
+
+func rolloutObjectFromRuntime(obj runtime.Object) (map[string]interface{}, error) {
+	switch typed := obj.(type) {
+	case *unstructured.Unstructured:
+		return typed.Object, nil
+	default:
+		return nil, fmt.Errorf("unsupported watch object type: %T", obj)
+	}
+}
+
+func extractRolloutWatchMeta(rolloutObj map[string]interface{}) (string, string, string) {
+	metadata, _ := rolloutObj["metadata"].(map[string]interface{})
+	if metadata == nil {
+		return "", "", ""
+	}
+	namespace, _ := metadata["namespace"].(string)
+	name, _ := metadata["name"].(string)
+	resourceVersion, _ := metadata["resourceVersion"].(string)
+	return namespace, name, resourceVersion
+}
+
+func buildRolloutWatchPayload(
+	rolloutObj map[string]interface{},
+	namespaceHint string,
+	nameHint string,
+	resourceVersionHint string,
+	errorMessage string,
+) map[string]interface{} {
+	namespace, name, resourceVersion := extractRolloutWatchMeta(rolloutObj)
+	if namespace == "" {
+		namespace = namespaceHint
+	}
+	if name == "" {
+		name = nameHint
+	}
+	if resourceVersion == "" {
+		resourceVersion = resourceVersionHint
+	}
+
+	payload := map[string]interface{}{
+		"type":            watchResourceType,
+		"namespace":       namespace,
+		"name":            name,
+		"resourceVersion": resourceVersion,
+		"rollout":         rolloutObj,
+		"ts":              time.Now().UTC().Format(time.RFC3339Nano),
+	}
+
+	if errorMessage != "" {
+		payload["message"] = errorMessage
+	}
+
+	return payload
+}
+
+func streamRolloutWatch(c *gin.Context, namespace, name string) {
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		response.Error(c, http.StatusInternalServerError, "Streaming unsupported by server", nil, errorCodeWatchStreamUnavailable)
+		return
+	}
+
+	ctx := c.Request.Context()
+	listOpts := metav1.ListOptions{}
+	if name != "" {
+		listOpts.FieldSelector = "metadata.name=" + name
+	}
+
+	initialList, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).List(ctx, listOpts)
+	if err != nil {
+		logger.Log.Error("Failed to list rollouts for watch",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.Error(c, http.StatusServiceUnavailable, "Rollout watch stream unavailable", err, errorCodeWatchStreamUnavailable)
+		return
+	}
+
+	listOpts.ResourceVersion = initialList.GetResourceVersion()
+	watcher, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Watch(ctx, listOpts)
+	if err != nil {
+		logger.Log.Error("Failed to start rollout watch",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.Error(c, http.StatusServiceUnavailable, "Rollout watch stream unavailable", err, errorCodeWatchStreamUnavailable)
+		return
+	}
+	defer watcher.Stop()
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	flusher.Flush()
+
+	for i := range initialList.Items {
+		if !writeRolloutSSEEvent(c, watchEventSnapshot, buildRolloutWatchPayload(initialList.Items[i].Object, namespace, name, initialList.GetResourceVersion(), "")) {
+			return
+		}
+	}
+
+	heartbeatTicker := time.NewTicker(rolloutHeartbeatInterval)
+	defer heartbeatTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-heartbeatTicker.C:
+			if !writeRolloutSSEEvent(c, watchEventHeartbeat, buildRolloutWatchPayload(nil, namespace, name, listOpts.ResourceVersion, "")) {
+				return
+			}
+		case event, ok := <-watcher.ResultChan():
+			if !ok {
+				_ = writeRolloutSSEEvent(
+					c,
+					watchEventError,
+					buildRolloutWatchPayload(nil, namespace, name, listOpts.ResourceVersion, "watch stream closed"),
+				)
+				return
+			}
+
+			switch event.Type {
+			case watch.Added, watch.Modified:
+				obj, objErr := rolloutObjectFromRuntime(event.Object)
+				if objErr != nil {
+					_ = writeRolloutSSEEvent(
+						c,
+						watchEventError,
+						buildRolloutWatchPayload(nil, namespace, name, listOpts.ResourceVersion, objErr.Error()),
+					)
+					continue
+				}
+				_, _, rv := extractRolloutWatchMeta(obj)
+				if rv != "" {
+					listOpts.ResourceVersion = rv
+				}
+				if !writeRolloutSSEEvent(c, watchEventUpsert, buildRolloutWatchPayload(obj, namespace, name, listOpts.ResourceVersion, "")) {
+					return
+				}
+			case watch.Deleted:
+				obj, objErr := rolloutObjectFromRuntime(event.Object)
+				if objErr != nil {
+					_ = writeRolloutSSEEvent(
+						c,
+						watchEventError,
+						buildRolloutWatchPayload(nil, namespace, name, listOpts.ResourceVersion, objErr.Error()),
+					)
+					continue
+				}
+				_, _, rv := extractRolloutWatchMeta(obj)
+				if rv != "" {
+					listOpts.ResourceVersion = rv
+				}
+				if !writeRolloutSSEEvent(c, watchEventDelete, buildRolloutWatchPayload(obj, namespace, name, listOpts.ResourceVersion, "")) {
+					return
+				}
+			case watch.Error:
+				message := "watch error"
+				if status, ok := event.Object.(*metav1.Status); ok && status.Message != "" {
+					message = status.Message
+				}
+				if !writeRolloutSSEEvent(c, watchEventError, buildRolloutWatchPayload(nil, namespace, name, listOpts.ResourceVersion, message)) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// WatchRollouts streams rollout change events for a namespace via SSE.
+func WatchRollouts(c *gin.Context) {
+	namespace := c.Param("namespace")
+	streamRolloutWatch(c, namespace, "")
+}
+
+// WatchRollout streams rollout change events for a specific rollout via SSE.
+func WatchRollout(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+	streamRolloutWatch(c, namespace, name)
 }
 
 // GetRollout returns the complete rollout object
@@ -282,6 +520,353 @@ func ApproveRollout(c *gin.Context) {
 	response.Success(c, gin.H{"message": "Rollout approved successfully"})
 }
 
+func isRolloutPromotable(rollout *unstructured.Unstructured) bool {
+	phase, _, _ := unstructured.NestedString(rollout.Object, "status", "phase")
+	specPaused, _, _ := unstructured.NestedBool(rollout.Object, "spec", "paused")
+	return specPaused || phase == "Paused" || phase == "Progressing"
+}
+
+// PromoteRollout promotes a rollout by continuing from the current step (non-full promote).
+func PromoteRollout(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		logger.Log.Error("Failed to get rollout for promote",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
+		return
+	}
+
+	if !isRolloutPromotable(rollout) {
+		response.Error(c, http.StatusConflict, "Rollout is not in a promotable state", nil, errorCodeRolloutNotPromotable)
+		return
+	}
+
+	if err := unstructured.SetNestedField(rollout.Object, false, "spec", "paused"); err != nil {
+		logger.Log.Error("Failed to unset paused field for promote",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
+		return
+	}
+
+	annotations, found, _ := unstructured.NestedStringMap(rollout.Object, "metadata", "annotations")
+	if !found {
+		annotations = map[string]string{}
+	}
+	annotations["kruise.io/promote"] = time.Now().UTC().Format(time.RFC3339Nano)
+	if err := unstructured.SetNestedStringMap(rollout.Object, annotations, "metadata", "annotations"); err != nil {
+		logger.Log.Error("Failed to set promote annotation",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
+		return
+	}
+
+	if _, err = GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Update(context.TODO(), rollout, metav1.UpdateOptions{}); err != nil {
+		logger.Log.Error("Failed to update rollout for promote",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{"message": "Rollout promoted to next step"})
+}
+
+func findReplicaSetByStableRevision(
+	namespace string,
+	deployment *unstructured.Unstructured,
+	stableRevision string,
+) (*unstructured.Unstructured, error) {
+	selector := extractLabelSelector(deployment.Object)
+	if selector == "" {
+		return nil, fmt.Errorf("deployment selector is empty")
+	}
+
+	rsList, err := GetDynamicClient().Resource(replicaSetGVR).Namespace(namespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: selector,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	workloadName, _, _ := unstructured.NestedString(deployment.Object, "metadata", "name")
+	workloadUID, _, _ := unstructured.NestedString(deployment.Object, "metadata", "uid")
+
+	for i := range rsList.Items {
+		rs := rsList.Items[i]
+		if !isReplicaSetOwnedByDeployment(rs, workloadName, workloadUID) {
+			continue
+		}
+
+		labels, _, _ := unstructured.NestedStringMap(rs.Object, "metadata", "labels")
+		podTemplateHash := labels["pod-template-hash"]
+		if podTemplateHash == stableRevision {
+			rsCopy := rs.DeepCopy()
+			return rsCopy, nil
+		}
+	}
+
+	return nil, apierrors.NewNotFound(schema.GroupResource{Group: "apps", Resource: "replicasets"}, stableRevision)
+}
+
+func rolloutDeploymentForRollback(rollout *unstructured.Unstructured) (string, string, error) {
+	workloadRef := extractWorkloadRefFromRollout(rollout)
+	if workloadRef == nil {
+		return "", "", fmt.Errorf("workloadRef is not configured")
+	}
+
+	workloadKind, _ := workloadRef["kind"].(string)
+	workloadName, _ := workloadRef["name"].(string)
+	if workloadKind == "" || workloadName == "" {
+		return "", "", fmt.Errorf("workloadRef is incomplete")
+	}
+
+	if !strings.EqualFold(workloadKind, "deployment") {
+		return "", "", fmt.Errorf("unsupported kind: %s", workloadKind)
+	}
+
+	return "Deployment", workloadName, nil
+}
+
+// RollbackRollout rolls back a rollout to the stable revision template.
+// Phase 1 supports only workloadRef.kind=Deployment.
+func RollbackRollout(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		logger.Log.Error("Failed to get rollout for rollback",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
+		return
+	}
+
+	workloadKind, workloadName, err := rolloutDeploymentForRollback(rollout)
+	if err != nil {
+		response.Error(c, http.StatusNotImplemented, "Current rollback only supports Deployment", err, errorCodeUnsupportedRollbackKind)
+		return
+	}
+
+	stableRevision, _, _ := unstructured.NestedString(rollout.Object, "status", "canaryStatus", "stableRevision")
+	if stableRevision == "" {
+		response.Error(c, http.StatusConflict, "No stable revision available for rollback", nil, "STABLE_REVISION_NOT_FOUND")
+		return
+	}
+
+	deployment, err := GetDynamicClient().Resource(deploymentGVR).Namespace(namespace).Get(context.TODO(), workloadName, metav1.GetOptions{})
+	if err != nil {
+		logger.Log.Error("Failed to get deployment for rollback",
+			zap.String("namespace", namespace),
+			zap.String("rollout", name),
+			zap.String("deployment", workloadName),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
+		return
+	}
+
+	stableRS, err := findReplicaSetByStableRevision(namespace, deployment, stableRevision)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			response.Error(c, http.StatusNotFound, "Stable revision ReplicaSet not found", err, "STABLE_REPLICASET_NOT_FOUND")
+			return
+		}
+		response.InternalError(c, err)
+		return
+	}
+
+	stableTemplate, found, _ := unstructured.NestedMap(stableRS.Object, "spec", "template")
+	if !found || stableTemplate == nil {
+		response.Error(c, http.StatusConflict, "Stable ReplicaSet template is empty", nil, "INVALID_STABLE_TEMPLATE")
+		return
+	}
+
+	templateCopy := runtime.DeepCopyJSON(stableTemplate)
+	if err := unstructured.SetNestedMap(deployment.Object, templateCopy, "spec", "template"); err != nil {
+		response.InternalError(c, err)
+		return
+	}
+
+	annotations, found, _ := unstructured.NestedStringMap(deployment.Object, "metadata", "annotations")
+	if !found {
+		annotations = map[string]string{}
+	}
+	annotations["kruise-dashboard.io/rolled-back-at"] = time.Now().UTC().Format(time.RFC3339Nano)
+	if err := unstructured.SetNestedStringMap(deployment.Object, annotations, "metadata", "annotations"); err != nil {
+		response.InternalError(c, err)
+		return
+	}
+
+	if _, err = GetDynamicClient().Resource(deploymentGVR).Namespace(namespace).Update(context.TODO(), deployment, metav1.UpdateOptions{}); err != nil {
+		response.InternalError(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"message":        "Rollback completed",
+		"rollout":        name,
+		"namespace":      namespace,
+		"workloadKind":   workloadKind,
+		"workloadName":   workloadName,
+		"stableRevision": stableRevision,
+	})
+}
+
+// GetRolloutAnalysis returns placeholder analysis information (phase 1 scaffold).
+func GetRolloutAnalysis(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	_, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			response.NotFound(c, "rollout")
+			return
+		}
+		response.InternalError(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"source":  "placeholder",
+		"status":  "not_configured",
+		"code":    errorCodeAnalysisNotConfigured,
+		"summary": "Analysis data source is not configured yet",
+		"runs":    []interface{}{},
+	})
+}
+
+type setRolloutImageRequest struct {
+	Container     string `json:"container"`
+	Image         string `json:"image"`
+	IsInit        bool   `json:"isInitContainer"`
+	InitContainer bool   `json:"initContainer"`
+}
+
+func updateImageInContainerList(containerList []interface{}, containerName, image string) ([]interface{}, bool) {
+	updated := false
+	result := make([]interface{}, 0, len(containerList))
+	for _, item := range containerList {
+		container, ok := item.(map[string]interface{})
+		if !ok {
+			result = append(result, item)
+			continue
+		}
+		name, _ := container["name"].(string)
+		if name == containerName {
+			copyObj := runtime.DeepCopyJSON(container)
+			copyObj["image"] = image
+			result = append(result, copyObj)
+			updated = true
+			continue
+		}
+		result = append(result, container)
+	}
+	return result, updated
+}
+
+// SetRolloutImage updates image for container or initContainer in rollout referenced workload.
+func SetRolloutImage(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	var req setRolloutImageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request payload")
+		return
+	}
+	if strings.TrimSpace(req.Container) == "" || strings.TrimSpace(req.Image) == "" {
+		response.BadRequest(c, "container and image are required")
+		return
+	}
+	useInitContainers := req.IsInit || req.InitContainer
+
+	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		response.InternalError(c, err)
+		return
+	}
+
+	workloadRef := extractWorkloadRefFromRollout(rollout)
+	if workloadRef == nil {
+		response.Error(c, http.StatusConflict, "workloadRef is not configured", nil, "WORKLOAD_REF_MISSING")
+		return
+	}
+	workloadKind, _ := workloadRef["kind"].(string)
+	workloadName, _ := workloadRef["name"].(string)
+	if workloadKind == "" || workloadName == "" {
+		response.Error(c, http.StatusConflict, "workloadRef is incomplete", nil, "WORKLOAD_REF_INVALID")
+		return
+	}
+
+	workloadGVR, _, err := resolveWorkloadRefGVR(workloadKind)
+	if err != nil {
+		response.Error(c, http.StatusNotImplemented, "workload kind does not support image update", err, "UNSUPPORTED_WORKLOAD_KIND")
+		return
+	}
+
+	workload, err := GetDynamicClient().Resource(workloadGVR).Namespace(namespace).Get(context.TODO(), workloadName, metav1.GetOptions{})
+	if err != nil {
+		response.InternalError(c, err)
+		return
+	}
+
+	path := []string{"spec", "template", "spec", "containers"}
+	if useInitContainers {
+		path = []string{"spec", "template", "spec", "initContainers"}
+	}
+
+	containerList, found, _ := unstructured.NestedSlice(workload.Object, path...)
+	if !found || len(containerList) == 0 {
+		response.Error(c, http.StatusNotFound, "No containers found in workload", nil, "CONTAINERS_NOT_FOUND")
+		return
+	}
+
+	updatedList, updated := updateImageInContainerList(containerList, req.Container, req.Image)
+	if !updated {
+		response.Error(c, http.StatusNotFound, "Container not found", nil, "CONTAINER_NOT_FOUND")
+		return
+	}
+
+	if err := unstructured.SetNestedSlice(workload.Object, updatedList, path...); err != nil {
+		response.InternalError(c, err)
+		return
+	}
+
+	if _, err = GetDynamicClient().Resource(workloadGVR).Namespace(namespace).Update(context.TODO(), workload, metav1.UpdateOptions{}); err != nil {
+		response.InternalError(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"message":       "Image updated successfully",
+		"namespace":     namespace,
+		"rollout":       name,
+		"workloadKind":  workloadKind,
+		"workloadName":  workloadName,
+		"container":     req.Container,
+		"image":         req.Image,
+		"initContainer": useInitContainers,
+	})
+}
+
 // resolveWorkloadRefGVR maps a workloadRef kind to its GVR.
 func resolveWorkloadRefGVR(kind string) (schema.GroupVersionResource, string, error) {
 	kindLower := strings.ToLower(kind)
@@ -313,18 +898,28 @@ func extractContainers(obj map[string]interface{}) []map[string]interface{} {
 	if templateSpec == nil {
 		return nil
 	}
-	containers, _ := templateSpec["containers"].([]interface{})
-	result := make([]map[string]interface{}, 0, len(containers))
-	for _, c := range containers {
-		cMap, ok := c.(map[string]interface{})
-		if !ok {
-			continue
+
+	appendContainerInfo := func(result []map[string]interface{}, containers []interface{}, containerType string) []map[string]interface{} {
+		for _, c := range containers {
+			cMap, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			result = append(result, map[string]interface{}{
+				"name":  cMap["name"],
+				"image": cMap["image"],
+				"type":  containerType,
+			})
 		}
-		result = append(result, map[string]interface{}{
-			"name":  cMap["name"],
-			"image": cMap["image"],
-		})
+		return result
 	}
+
+	containers, _ := templateSpec["containers"].([]interface{})
+	initContainers, _ := templateSpec["initContainers"].([]interface{})
+	result := make([]map[string]interface{}, 0, len(containers)+len(initContainers))
+	result = appendContainerInfo(result, containers, "container")
+	result = appendContainerInfo(result, initContainers, "initContainer")
+
 	return result
 }
 

@@ -17,18 +17,23 @@ import { RolloutStepsPipeline } from "@/components/rollout-steps-pipeline"
 import { PodStatusGrid, PodStatusGridSimple } from "@/components/rollout-pod-status"
 import { RolloutRevisions } from "@/components/rollout-revisions"
 import { RolloutContainers } from "@/components/rollout-containers"
+import { RolloutAnalysisModal } from "@/components/rollout-analysis-modal"
 import { RolloutStatusIcon, RolloutStrategyBadge } from "@/components/rollout-status"
 import { MainNav } from "@/components/main-nav"
 import { NamespaceSelector } from "@/components/namespace-selector"
 import { transformRolloutDetail } from "@/lib/rollout-utils"
+import { config } from "@/lib/config"
 import { useRollout, useRolloutPods } from "@/hooks/use-rollouts"
+import { useRolloutsWatch } from "@/hooks/use-rollouts-watch"
 import {
+  promoteRollout,
   approveRollout,
   pauseRollout,
   restartRollout,
   resumeRollout,
   abortRollout,
   retryRollout,
+  rollbackRollout,
 } from "@/api/rollout"
 import type { RevisionInfo, ContainerInfo } from "@/api/rollout"
 import {
@@ -39,6 +44,7 @@ import {
   XCircle,
   RotateCw,
   ArrowUpCircle,
+  BarChart3,
   Loader2,
   Server,
 } from "lucide-react"
@@ -46,7 +52,7 @@ import { useParams, useRouter } from "next/navigation"
 import { useMemo, useState, useCallback } from "react"
 import { useSWRConfig } from "swr"
 
-type ActionType = "restart" | "retry" | "pause" | "resume" | "approve" | "abort"
+type ActionType = "restart" | "retry" | "pause" | "resume" | "promote" | "approve" | "abort" | "rollback"
 
 export function RolloutDetailEnhanced() {
   const params = useParams()
@@ -55,10 +61,23 @@ export function RolloutDetailEnhanced() {
   const namespace = (Array.isArray(params.namespace) ? params.namespace[0] : params.namespace) || "default"
   const name = (Array.isArray(params.name) ? params.name[0] : params.name) || ""
 
-  const { data: rawRolloutData, error: fetchError, isLoading } = useRollout(namespace, name)
-  const { data: podsData } = useRolloutPods(namespace, name)
+  const watchState = useRolloutsWatch({
+    namespace,
+    name,
+    enabled: config.rolloutWatchEnabled,
+  })
+  const refreshInterval = watchState.fallbackPolling ? 10000 : 0
+
+  const { data: rawRolloutData, error: fetchError, isLoading } = useRollout(namespace, name, {
+    refreshInterval,
+  })
+  const { data: podsData } = useRolloutPods(namespace, name, {
+    refreshInterval,
+  })
 
   const [actionLoading, setActionLoading] = useState<ActionType | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [analysisOpen, setAnalysisOpen] = useState(false)
 
   const rollout = useMemo(() => {
     if (!rawRolloutData) return null
@@ -80,12 +99,20 @@ export function RolloutDetailEnhanced() {
   const handleAction = useCallback(
     async (action: ActionType, fn: () => Promise<void>) => {
       setActionLoading(action)
+      setActionError(null)
       try {
         await fn()
         mutate(`rollout-${namespace}-${name}`)
         mutate(`rollout-pods-${namespace}-${name}`)
-      } catch {
-        // error logged in API layer
+      } catch (error) {
+        const message =
+          typeof error === "object" &&
+          error !== null &&
+          "response" in error &&
+          typeof (error as { response?: { data?: { message?: string } } }).response?.data?.message === "string"
+            ? (error as { response?: { data?: { message?: string } } }).response?.data?.message || "Action failed"
+            : "Action failed"
+        setActionError(message)
       } finally {
         setActionLoading(null)
       }
@@ -131,9 +158,12 @@ export function RolloutDetailEnhanced() {
 
   const canPause = rollout.phase === "Progressing"
   const canResume = rollout.phase === "Paused" || rollout.paused
+  const canPromote = rollout.phase === "Paused" || rollout.phase === "Progressing"
   const canApprove = rollout.phase === "Paused" || rollout.phase === "Progressing"
   const canAbort = rollout.phase === "Paused" || rollout.phase === "Progressing"
   const canRetry = rollout.phase === "Paused" || rollout.phase === "Progressing" || rollout.phase === "Degraded"
+  const rollbackSupported = rollout.workloadRefKind.toLowerCase() === "deployment"
+  const rollbackDisabledReason = "当前仅支持 Deployment 回滚"
 
   return (
     <div className="flex h-dvh flex-col bg-muted/40 overflow-hidden">
@@ -154,6 +184,9 @@ export function RolloutDetailEnhanced() {
             <h1 className="text-lg font-bold truncate">{rollout.name}</h1>
             <RolloutStatusIcon status={rollout.phase} />
             <span className="text-xs text-muted-foreground whitespace-nowrap">{rollout.namespace} / {rollout.phase}</span>
+            <Badge variant={watchState.fallbackPolling ? "outline" : "secondary"} className="text-[10px]">
+              {watchState.fallbackPolling ? "Polling" : "Watch"}
+            </Badge>
 
             <div className="flex items-center gap-1.5 ml-auto flex-wrap">
               <ActionButton
@@ -210,6 +243,17 @@ export function RolloutDetailEnhanced() {
                   variant="destructive"
                 />
               )}
+              {canPromote && (
+                <ActionButton
+                  label="PROMOTE"
+                  icon={ArrowUpCircle}
+                  loading={actionLoading === "promote"}
+                  disabled={actionLoading !== null}
+                  confirmTitle="Promote Rollout?"
+                  confirmDescription={`This will promote rollout "${rollout.name}" to the next step.`}
+                  onConfirm={() => handleAction("promote", () => promoteRollout(namespace, name))}
+                />
+              )}
               {canApprove && (
                 <ActionButton
                   label="PROMOTE-FULL"
@@ -221,8 +265,29 @@ export function RolloutDetailEnhanced() {
                   onConfirm={() => handleAction("approve", () => approveRollout(namespace, name))}
                 />
               )}
+              {config.rolloutAnalysisEnabled && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={() => setAnalysisOpen(true)}
+                >
+                  <BarChart3 className="h-3.5 w-3.5" />
+                  ANALYSIS
+                </Button>
+              )}
             </div>
           </div>
+          {watchState.lastError && watchState.fallbackPolling && (
+            <div className="text-xs text-muted-foreground">
+              Watch unavailable, fallback to polling: {watchState.lastError}
+            </div>
+          )}
+          {actionError && (
+            <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {actionError}
+            </div>
+          )}
 
           {/* Summary + Workload Ref */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -294,6 +359,11 @@ export function RolloutDetailEnhanced() {
                   revisions={revisions}
                   rolloutName={rollout.name}
                   namespace={namespace}
+                  rollbackEnabled={config.rollbackEnabled && rollbackSupported}
+                  rollbackDisabledReason={rollbackDisabledReason}
+                  onRollback={(_revision) =>
+                    handleAction("rollback", () => rollbackRollout(namespace, name).then(() => undefined))
+                  }
                 />
               ) : pods.length > 0 ? (
                 <PodStatusGrid pods={pods} />
@@ -313,7 +383,14 @@ export function RolloutDetailEnhanced() {
           {containers.length > 0 && (
             <section className="rounded-lg border bg-card p-3">
               <h3 className="text-sm font-semibold mb-2">Containers</h3>
-              <RolloutContainers containers={containers} />
+              <RolloutContainers
+                containers={containers}
+                namespace={namespace}
+                rolloutName={name}
+                onUpdated={() => {
+                  void mutate(`rollout-pods-${namespace}-${name}`)
+                }}
+              />
             </section>
           )}
 
@@ -364,6 +441,14 @@ export function RolloutDetailEnhanced() {
           </section>
         </div>
       </div>
+      {config.rolloutAnalysisEnabled && (
+        <RolloutAnalysisModal
+          namespace={namespace}
+          name={name}
+          open={analysisOpen}
+          onOpenChange={setAnalysisOpen}
+        />
+      )}
     </div>
   )
 }

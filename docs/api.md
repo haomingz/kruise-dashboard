@@ -1,390 +1,185 @@
 # API 接口参考
 
-Kruise Dashboard 后端提供 RESTful API，用于管理 Kubernetes 集群中的 OpenKruise 资源。
+Kruise Dashboard 后端提供 REST API + SSE Watch，用于管理 Kubernetes 集群中的 OpenKruise 资源。
 
-**基础路径**：`http://localhost:8080/api/v1`
+基础路径：`http://localhost:8080/api/v1`
 
 ## 通用说明
 
 ### 响应格式
 
-**成功响应**：
+成功响应：
 
 ```json
 {
-  "data": { ... }
+  "data": {}
 }
 ```
 
-**错误响应**：
+错误响应：
 
 ```json
 {
   "trace_id": "550e8400-e29b-41d4-a716-446655440000",
-  "message": "错误描述",
+  "message": "error message",
   "code": "ERROR_CODE"
 }
 ```
 
-### 错误码
+### 常用错误码
 
-| HTTP 状态码 | code | 说明 |
-|-------------|------|------|
+| HTTP | code | 说明 |
+|------|------|------|
 | 400 | `BAD_REQUEST` | 请求参数错误 |
 | 401 | `UNAUTHORIZED` | 未授权 |
 | 404 | `NOT_FOUND` | 资源不存在 |
+| 409 | `ROLLOUT_NOT_PROMOTABLE` | 当前状态不可 Promote |
 | 500 | `INTERNAL_ERROR` | 服务器内部错误 |
+| 501 | `UNSUPPORTED_ROLLBACK_KIND` | 当前仅支持 Deployment 回滚 |
+| 503 | `WATCH_STREAM_UNAVAILABLE` | Watch 流不可用 |
+| 200 | `ANALYSIS_SOURCE_NOT_CONFIGURED` | Analysis 占位状态，无真实数据源 |
 
-### 路径参数说明
+### 路径参数
 
-| 参数 | 说明 | 示例 |
-|------|------|------|
-| `:namespace` | Kubernetes 命名空间 | `default`、`production` |
-| `:name` | 资源名称 | `my-cloneset`、`my-rollout` |
-| `:type` | 工作负载类型 | `cloneset`、`statefulset`、`daemonset`、`deployment`、`broadcastjob`、`advancedcronjob` |
-
----
-
-## 集群
-
-### 获取集群指标
-
-```
-GET /cluster/metrics
-```
-
-获取 Kubernetes 集群的资源使用和性能指标。
-
-**响应示例**：
-
-```json
-{
-  "data": {
-    "nodes": 3,
-    "cpu_usage": "45%",
-    "memory_usage": "62%",
-    "pod_count": 128
-  }
-}
-```
-
----
-
-## 命名空间
-
-### 列出所有命名空间
-
-```
-GET /namespaces
-```
-
-列出 Kubernetes 集群中所有命名空间的名称。
-
-**响应示例**：
-
-```json
-{
-  "data": ["default", "kube-system", "kruise-system", "production"]
-}
-```
+| 参数 | 说明 |
+|------|------|
+| `:namespace` | Kubernetes 命名空间 |
+| `:name` | 资源名称 |
+| `:type` | 工作负载类型 |
 
 ---
 
 ## Rollout 管理
 
-### 获取 Rollout 详情
+### 查询接口
 
-```
-GET /rollout/:namespace/:name
-```
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/rollout/:namespace/:name` | 获取 Rollout 详情 |
+| GET | `/rollout/:namespace/:name/pods` | 获取 Pod、Revision、容器信息 |
+| GET | `/rollout/status/:namespace/:name` | 获取 Rollout 状态 |
+| GET | `/rollout/history/:namespace/:name` | 获取历史 |
+| GET | `/rollout/list/:namespace` | 列出命名空间 Rollout |
+| GET | `/rollout/active/:namespace` | 列出活跃 Rollout |
+| GET | `/rollout/:namespace/:name/analysis` | Analysis 占位数据 |
 
-获取指定 Rollout 的完整信息。
+### 控制接口
 
-**请求示例**：
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/rollout/pause/:namespace/:name` | 暂停 |
+| POST | `/rollout/resume/:namespace/:name` | 恢复 |
+| POST | `/rollout/restart/:namespace/:name` | 重启 |
+| POST | `/rollout/retry/:namespace/:name` | 重试当前步骤 |
+| POST | `/rollout/abort/:namespace/:name` | 终止（`spec.disabled=true`） |
+| POST | `/rollout/promote/:namespace/:name` | Promote（推进当前步骤，非 full） |
+| POST | `/rollout/approve/:namespace/:name` | Promote-Full（兼容旧语义） |
+| POST | `/rollout/rollback/:namespace/:name` | 回滚到稳定版本（Phase 1 仅 Deployment） |
+| POST | `/rollout/set-image/:namespace/:name` | 修改容器或 initContainer 镜像 |
+| POST | `/rollout/undo/:namespace/:name` | 占位接口（未实现） |
 
-```
-GET /api/v1/rollout/default/my-rollout
-```
+### Promote / Promote-Full 语义
 
-### 获取 Rollout 状态
+- `promote`：继续当前步骤（不跳过全流程）。
+- `approve`：保持兼容，作为 `promote-full` 使用。
 
-```
-GET /rollout/status/:namespace/:name
-```
+### Rollback 语义（Phase 1）
 
-获取 Rollout 的当前状态。
+- 仅支持 `workloadRef.kind=Deployment`。
+- 非 Deployment 返回：`501 + UNSUPPORTED_ROLLBACK_KIND`。
+- 回滚流程：读取 `status.canaryStatus.stableRevision` -> 找到 stable ReplicaSet -> 用 stable `spec.template` 覆盖 Deployment 模板。
 
-**请求示例**：
+### Set Image 请求体
 
-```
-GET /api/v1/rollout/status/default/my-rollout
-```
-
-### 获取 Rollout 历史
-
-```
-GET /rollout/history/:namespace/:name
-```
-
-获取 Rollout 的版本历史记录。
-
-**请求示例**：
-
-```
-GET /api/v1/rollout/history/default/my-rollout
-```
-
-### 暂停 Rollout
-
-```
-POST /rollout/pause/:namespace/:name
-```
-
-暂停正在进行中的 Rollout。
-
-**请求示例**：
-
-```
-POST /api/v1/rollout/pause/default/my-rollout
-```
-
-### 恢复 Rollout
-
-```
-POST /rollout/resume/:namespace/:name
-```
-
-恢复已暂停的 Rollout，继续执行发布。
-
-**请求示例**：
-
-```
-POST /api/v1/rollout/resume/default/my-rollout
-```
-
-### 回滚 Rollout
-
-```
-POST /rollout/undo/:namespace/:name
-```
-
-撤销当前 Rollout，回滚到上一个版本。
-
-**请求示例**：
-
-```
-POST /api/v1/rollout/undo/default/my-rollout
-```
-
-### 重启 Rollout
-
-```
-POST /rollout/restart/:namespace/:name
-```
-
-重启 Rollout。
-
-**请求示例**：
-
-```
-POST /api/v1/rollout/restart/default/my-rollout
-```
-
-### 审批 Rollout
-
-```
-POST /rollout/approve/:namespace/:name
-```
-
-审批等待确认的 Rollout 步骤，允许发布继续进行到下一阶段。
-
-**请求示例**：
-
-```
-POST /api/v1/rollout/approve/default/my-rollout
-```
-
-### 列出所有 Rollout
-
-```
-GET /rollout/list/:namespace
-```
-
-列出指定命名空间内的所有 Rollout。
-
-**请求示例**：
-
-```
-GET /api/v1/rollout/list/default
-```
-
-### 列出活跃的 Rollout
-
-```
-GET /rollout/active/:namespace
-```
-
-列出指定命名空间内正在进行中的 Rollout。
-
-**请求示例**：
-
-```
-GET /api/v1/rollout/active/default
+```json
+{
+  "container": "app",
+  "image": "nginx:1.27.0",
+  "initContainer": false
+}
 ```
 
 ---
 
-## 工作负载管理
+## Rollout Watch（SSE）
 
-### 列出所有工作负载
+### 接口
 
-```
-GET /workload/:namespace
-```
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/rollout/watch/:namespace` | 监听命名空间 Rollout |
+| GET | `/rollout/watch/:namespace/:name` | 监听单个 Rollout |
 
-列出指定命名空间内的所有 OpenKruise 工作负载（包含所有支持的类型）。
+### 事件类型
 
-**请求示例**：
+- `snapshot`
+- `upsert`
+- `delete`
+- `error`
+- `heartbeat`
 
-```
-GET /api/v1/workload/default
-```
+### SSE 事件数据格式
 
-### 获取工作负载详情
-
-```
-GET /workload/:namespace/:type/:name
-```
-
-获取指定工作负载的完整信息。
-
-**请求示例**：
-
-```
-GET /api/v1/workload/default/cloneset/my-cloneset
+```text
+event: upsert
+data: {"type":"rollout","namespace":"default","name":"demo","resourceVersion":"12345","rollout":{},"ts":"2026-02-13T12:00:00Z"}
 ```
 
-### 按类型列出工作负载
-
-```
-GET /workload/:namespace/:type
-```
-
-列出指定命名空间内特定类型的所有工作负载。
-
-**请求示例**：
-
-```
-GET /api/v1/workload/default/cloneset
-```
-
-### 获取工作负载的 Pod 列表
-
-```
-GET /workload/:namespace/:type/:name/pods
-```
-
-获取指定工作负载管理的所有 Pod 的详细信息。
-
-**请求示例**：
-
-```
-GET /api/v1/workload/default/cloneset/my-cloneset/pods
-```
-
-### 扩缩容工作负载
-
-```
-POST /workload/:namespace/:type/:name/scale?replicas=N
-```
-
-调整工作负载的副本数。
-
-**查询参数**：
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `replicas` | integer | 是 | 目标副本数 |
-
-**请求示例**：
-
-```
-POST /api/v1/workload/default/cloneset/my-cloneset/scale?replicas=5
-```
-
-> 注意：仅 `deployment`、`cloneset`、`statefulset` 类型支持扩缩容。
-
-### 重启工作负载
-
-```
-POST /workload/:namespace/:type/:name/restart
-```
-
-重启指定的工作负载（触发滚动更新）。
-
-**请求示例**：
-
-```
-POST /api/v1/workload/default/cloneset/my-cloneset/restart
-```
-
-> 注意：`broadcastjob` 和 `advancedcronjob` 类型不支持重启。
-
-### 删除工作负载
-
-```
-DELETE /workload/:namespace/:type/:name
-```
-
-删除指定的工作负载。
-
-**请求示例**：
-
-```
-DELETE /api/v1/workload/default/cloneset/my-cloneset
-```
+其中：
+- `type` 固定为 `rollout`
+- `rollout` 在 `heartbeat` / 某些 `error` 事件中可能为 `null`
 
 ---
 
-## 支持的工作负载类型
+## Analysis 占位接口
 
-| `:type` 值 | Kubernetes 资源 | API Group | API Version | 可扩缩 | 可重启 |
-|-------------|----------------|-----------|-------------|--------|--------|
-| `deployment` | Deployment | `apps` | `v1` | Yes | Yes |
-| `cloneset` | CloneSet | `apps.kruise.io` | `v1alpha1` | Yes | Yes |
-| `statefulset` | StatefulSet | `apps.kruise.io` | `v1beta1` | Yes | Yes |
-| `daemonset` | DaemonSet | `apps.kruise.io` | `v1alpha1` | No | Yes |
-| `broadcastjob` | BroadcastJob | `apps.kruise.io` | `v1alpha1` | No | No |
-| `advancedcronjob` | AdvancedCronJob | `apps.kruise.io` | `v1alpha1` | No | No |
+### `GET /rollout/:namespace/:name/analysis`
+
+返回结构：
+
+```json
+{
+  "data": {
+    "source": "placeholder",
+    "status": "not_configured",
+    "code": "ANALYSIS_SOURCE_NOT_CONFIGURED",
+    "summary": "Analysis data source is not configured yet",
+    "runs": []
+  }
+}
+```
+
+`status` 枚举约定：`not_configured | pending | running | completed`
+
+---
+
+## 集群 / 命名空间 / 工作负载
+
+### 集群
+- `GET /cluster/metrics`
+
+### 命名空间
+- `GET /namespaces`
+
+### 工作负载
+- `GET /workload/:namespace`
+- `GET /workload/:namespace/:type`
+- `GET /workload/:namespace/:type/:name`
+- `GET /workload/:namespace/:type/:name/pods`
+- `POST /workload/:namespace/:type/:name/scale?replicas=N`
+- `POST /workload/:namespace/:type/:name/restart`
+- `DELETE /workload/:namespace/:type/:name`
 
 ---
 
-## 前端 API 客户端
+## 前端 API 映射（核心新增）
 
-前端通过 `api/` 目录下的模块调用这些接口：
-
-| 模块 | 函数 | 对应端点 |
-|------|------|----------|
-| `cluster.ts` | `getClusterMetrics()` | `GET /cluster/metrics` |
-| `namespace.ts` | `listNamespaces()` | `GET /namespaces` |
-| `workload.ts` | `listAllWorkloads(namespace)` | `GET /workload/:namespace` |
-| `workload.ts` | `getWorkload(namespace, type, name)` | `GET /workload/:namespace/:type/:name` |
-| `workload.ts` | `listWorkloads(namespace, type)` | `GET /workload/:namespace/:type` |
-| `workload.ts` | `getWorkloadWithPods(namespace, type, name)` | `GET /workload/:namespace/:type/:name/pods` |
-| `workload.ts` | `scaleWorkload(namespace, type, name, replicas)` | `POST /workload/.../scale` |
-| `workload.ts` | `restartWorkload(namespace, type, name)` | `POST /workload/.../restart` |
-| `workload.ts` | `deleteWorkload(namespace, type, name)` | `DELETE /workload/:namespace/:type/:name` |
-| `rollout.ts` | `getRollout(namespace, name)` | `GET /rollout/:namespace/:name` |
-| `rollout.ts` | `getRolloutStatus(namespace, name)` | `GET /rollout/status/:namespace/:name` |
-| `rollout.ts` | `getRolloutHistory(namespace, name)` | `GET /rollout/history/:namespace/:name` |
-| `rollout.ts` | `pauseRollout(namespace, name)` | `POST /rollout/pause/:namespace/:name` |
-| `rollout.ts` | `resumeRollout(namespace, name)` | `POST /rollout/resume/:namespace/:name` |
-| `rollout.ts` | `undoRollout(namespace, name)` | `POST /rollout/undo/:namespace/:name` |
-| `rollout.ts` | `restartRollout(namespace, name)` | `POST /rollout/restart/:namespace/:name` |
-| `rollout.ts` | `approveRollout(namespace, name)` | `POST /rollout/approve/:namespace/:name` |
-| `rollout.ts` | `listAllRollouts(namespace)` | `GET /rollout/list/:namespace` |
-| `rollout.ts` | `listActiveRollouts(namespace)` | `GET /rollout/active/:namespace` |
-
----
+`openkruise-dashboard/api/rollout.ts` 已新增：
+- `promoteRollout`
+- `rollbackRollout`
+- `watchRollouts`
+- `watchRollout`
+- `getRolloutAnalysis`
+- `setRolloutImage`
 
 > 返回 [项目主页](../README.md)

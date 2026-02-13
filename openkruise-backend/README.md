@@ -85,13 +85,22 @@ make docker-push      # 推送 Docker 镜像
 
 **Rollout 管理**
 - `GET /rollout/:namespace/:name` — 获取 Rollout 详情
+- `GET /rollout/:namespace/:name/pods` — 获取 Pod + Revision + 容器信息
+- `GET /rollout/watch/:namespace` — SSE 监听命名空间 Rollout 变更
+- `GET /rollout/watch/:namespace/:name` — SSE 监听单个 Rollout 变更
 - `GET /rollout/status/:namespace/:name` — Rollout 状态
 - `GET /rollout/history/:namespace/:name` — Rollout 历史
+- `GET /rollout/:namespace/:name/analysis` — Analysis 占位信息
 - `POST /rollout/pause/:namespace/:name` — 暂停 Rollout
 - `POST /rollout/resume/:namespace/:name` — 恢复 Rollout
 - `POST /rollout/undo/:namespace/:name` — 回滚 Rollout
 - `POST /rollout/restart/:namespace/:name` — 重启 Rollout
-- `POST /rollout/approve/:namespace/:name` — 审批 Rollout
+- `POST /rollout/promote/:namespace/:name` — Promote（推进当前步骤）
+- `POST /rollout/approve/:namespace/:name` — Promote-Full（兼容语义）
+- `POST /rollout/abort/:namespace/:name` — Abort（禁用 Rollout）
+- `POST /rollout/retry/:namespace/:name` — Retry（重试步骤）
+- `POST /rollout/rollback/:namespace/:name` — 回滚到稳定版本（Phase 1 仅 Deployment）
+- `POST /rollout/set-image/:namespace/:name` — 更新容器/initContainer 镜像
 - `GET /rollout/list/:namespace` — 列出命名空间内所有 Rollout
 - `GET /rollout/active/:namespace` — 列出活跃的 Rollout
 
