@@ -33,11 +33,18 @@ function StatusIcon({ status }: Readonly<{ status: string }>) {
 interface WorkloadTableProps {
   workloadList: TransformedWorkload[]
   type: string
-  showImage?: boolean
   loading?: boolean
 }
 
-export const WorkloadTable = memo(function WorkloadTable({ workloadList, type, showImage = true, loading = false }: WorkloadTableProps) {
+type WorkloadTableVariant = "with-image" | "without-image"
+
+interface WorkloadTableBaseProps extends WorkloadTableProps {
+  variant: WorkloadTableVariant
+}
+
+function WorkloadTableBase({ workloadList, type, loading = false, variant }: Readonly<WorkloadTableBaseProps>) {
+  const showImage = variant === "with-image"
+
   if (loading) {
     return (
       <div className="flex justify-center items-center py-4">
@@ -107,4 +114,12 @@ export const WorkloadTable = memo(function WorkloadTable({ workloadList, type, s
       </Table>
     </div>
   )
+}
+
+export const WorkloadTable = memo(function WorkloadTable(props: Readonly<WorkloadTableProps>) {
+  return <WorkloadTableBase {...props} variant="with-image" />
+})
+
+export const WorkloadTableWithoutImage = memo(function WorkloadTableWithoutImage(props: Readonly<WorkloadTableProps>) {
+  return <WorkloadTableBase {...props} variant="without-image" />
 })

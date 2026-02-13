@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { calculateAge } from "@/lib/utils"
 import { useMemo } from "react"
 import { useAllWorkloads } from "../hooks/use-workloads"
-import { TransformedWorkload, WorkloadTable } from "./workload-table"
+import { TransformedWorkload, WorkloadTable, WorkloadTableWithoutImage } from "./workload-table"
 
 interface WorkloadState {
   clonesets: TransformedWorkload[]
@@ -77,16 +77,16 @@ interface TabConfig {
   shortLabel: string
   title: string
   description: string
-  showImage?: boolean
+  tableVariant: "with-image" | "without-image"
 }
 
 const TAB_CONFIGS: TabConfig[] = [
-  { key: 'clonesets', label: 'CloneSets', shortLabel: 'CloneSets', title: 'CloneSets', description: 'Enhanced workload for stateless applications with advanced features' },
-  { key: 'statefulsets', label: 'Advanced StatefulSets', shortLabel: 'StatefulSets', title: 'Advanced StatefulSets', description: 'Advanced StatefulSets with enhanced capabilities for stateful applications' },
-  { key: 'daemonsets', label: 'Advanced DaemonSets', shortLabel: 'DaemonSets', title: 'Advanced DaemonSets', description: 'Advanced DaemonSets with enhanced node-level workload management' },
-  { key: 'sidecars', label: 'SidecarSets', shortLabel: 'Sidecars', title: 'SidecarSets', description: 'Manage sidecar containers across multiple pods with in-place update capabilities' },
-  { key: 'broadcastjobs', label: 'BroadcastJobs', shortLabel: 'BCJobs', title: 'BroadcastJobs', description: 'Jobs that run on all or selected nodes in the cluster' },
-  { key: 'advancedcronjobs', label: 'Advanced CronJobs', shortLabel: 'CronJobs', title: 'Advanced CronJobs', description: 'Enhanced CronJobs with advanced scheduling and lifecycle management', showImage: false },
+  { key: 'clonesets', label: 'CloneSets', shortLabel: 'CloneSets', title: 'CloneSets', description: 'Enhanced workload for stateless applications with advanced features', tableVariant: "with-image" },
+  { key: 'statefulsets', label: 'Advanced StatefulSets', shortLabel: 'StatefulSets', title: 'Advanced StatefulSets', description: 'Advanced StatefulSets with enhanced capabilities for stateful applications', tableVariant: "with-image" },
+  { key: 'daemonsets', label: 'Advanced DaemonSets', shortLabel: 'DaemonSets', title: 'Advanced DaemonSets', description: 'Advanced DaemonSets with enhanced node-level workload management', tableVariant: "with-image" },
+  { key: 'sidecars', label: 'SidecarSets', shortLabel: 'Sidecars', title: 'SidecarSets', description: 'Manage sidecar containers across multiple pods with in-place update capabilities', tableVariant: "with-image" },
+  { key: 'broadcastjobs', label: 'BroadcastJobs', shortLabel: 'BCJobs', title: 'BroadcastJobs', description: 'Jobs that run on all or selected nodes in the cluster', tableVariant: "with-image" },
+  { key: 'advancedcronjobs', label: 'Advanced CronJobs', shortLabel: 'CronJobs', title: 'Advanced CronJobs', description: 'Enhanced CronJobs with advanced scheduling and lifecycle management', tableVariant: "without-image" },
 ]
 
 export function WorkloadTabs() {
@@ -128,24 +128,28 @@ export function WorkloadTabs() {
         ))}
       </TabsList>
 
-      {TAB_CONFIGS.map((tab) => (
-        <TabsContent key={tab.key} value={tab.key} className="space-y-0 min-w-0">
-          <Card className="min-w-0 gap-3 py-4">
-            <CardHeader className="p-0 px-4 pt-0 pb-1">
-              <CardTitle className="text-base sm:text-lg">{tab.title}</CardTitle>
-              <CardDescription className="text-xs sm:text-sm">{tab.description}</CardDescription>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 pt-0">
-              <WorkloadTable
-                workloadList={workloads[tab.key as keyof WorkloadState]}
-                type={tab.label}
-                showImage={tab.showImage}
-                loading={isLoading}
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      ))}
+      {TAB_CONFIGS.map((tab) => {
+        const TableComponent =
+          tab.tableVariant === "without-image" ? WorkloadTableWithoutImage : WorkloadTable
+
+        return (
+          <TabsContent key={tab.key} value={tab.key} className="space-y-0 min-w-0">
+            <Card className="min-w-0 gap-3 py-4">
+              <CardHeader className="p-0 px-4 pt-0 pb-1">
+                <CardTitle className="text-base sm:text-lg">{tab.title}</CardTitle>
+                <CardDescription className="text-xs sm:text-sm">{tab.description}</CardDescription>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 pt-0">
+                <TableComponent
+                  workloadList={workloads[tab.key as keyof WorkloadState]}
+                  type={tab.label}
+                  loading={isLoading}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )
+      })}
     </Tabs>
   )
 }

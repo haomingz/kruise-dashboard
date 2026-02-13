@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { TransformedWorkload, WorkloadTable } from './workload-table'
+import { TransformedWorkload, WorkloadTable, WorkloadTableWithoutImage } from './workload-table'
 
 // Mock next/link
 vi.mock('next/link', () => ({
@@ -69,8 +69,8 @@ describe('WorkloadTable', () => {
     expect(nginxCells.length).toBeGreaterThan(0)
   })
 
-  it('hides image column when showImage is false', () => {
-    render(<WorkloadTable workloadList={mockWorkloads} type="CloneSets" showImage={false} />)
+  it('hides image column in the no-image variant', () => {
+    render(<WorkloadTableWithoutImage workloadList={mockWorkloads} type="CloneSets" />)
     expect(screen.queryByText('Image')).not.toBeInTheDocument()
   })
 
