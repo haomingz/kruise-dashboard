@@ -75,6 +75,8 @@ func main() {
 			rollout.POST("/restart/:namespace/:name", handlers.RestartRollout)
 			rollout.POST("/promote/:namespace/:name", handlers.PromoteRollout)
 			rollout.POST("/approve/:namespace/:name", handlers.ApproveRollout)
+			rollout.POST("/enable/:namespace/:name", handlers.EnableRollout)
+			rollout.POST("/disable/:namespace/:name", handlers.DisableRollout)
 			rollout.POST("/abort/:namespace/:name", handlers.AbortRollout)
 			rollout.POST("/retry/:namespace/:name", handlers.RetryRollout)
 			rollout.POST("/rollback/:namespace/:name", handlers.RollbackRollout)

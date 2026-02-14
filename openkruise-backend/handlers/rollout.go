@@ -146,6 +146,59 @@ func buildRolloutWatchPayload(
 	return payload
 }
 
+func handleRolloutWatchObjectEvent(
+	c *gin.Context,
+	namespace string,
+	name string,
+	listOpts *metav1.ListOptions,
+	eventType string,
+	obj runtime.Object,
+) bool {
+	rolloutObj, objErr := rolloutObjectFromRuntime(obj)
+	if objErr != nil {
+		_ = writeRolloutSSEEvent(
+			c,
+			watchEventError,
+			buildRolloutWatchPayload(nil, namespace, name, listOpts.ResourceVersion, objErr.Error()),
+		)
+		return true
+	}
+
+	_, _, rv := extractRolloutWatchMeta(rolloutObj)
+	if rv != "" {
+		listOpts.ResourceVersion = rv
+	}
+
+	return writeRolloutSSEEvent(
+		c,
+		eventType,
+		buildRolloutWatchPayload(rolloutObj, namespace, name, listOpts.ResourceVersion, ""),
+	)
+}
+
+func handleRolloutWatchResultEvent(
+	c *gin.Context,
+	namespace string,
+	name string,
+	listOpts *metav1.ListOptions,
+	event watch.Event,
+) bool {
+	switch event.Type {
+	case watch.Added, watch.Modified:
+		return handleRolloutWatchObjectEvent(c, namespace, name, listOpts, watchEventUpsert, event.Object)
+	case watch.Deleted:
+		return handleRolloutWatchObjectEvent(c, namespace, name, listOpts, watchEventDelete, event.Object)
+	case watch.Error:
+		message := "watch error"
+		if status, ok := event.Object.(*metav1.Status); ok && status.Message != "" {
+			message = status.Message
+		}
+		return writeRolloutSSEEvent(c, watchEventError, buildRolloutWatchPayload(nil, namespace, name, listOpts.ResourceVersion, message))
+	default:
+		return true
+	}
+}
+
 func streamRolloutWatch(c *gin.Context, namespace, name string) {
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
@@ -215,50 +268,8 @@ func streamRolloutWatch(c *gin.Context, namespace, name string) {
 				)
 				return
 			}
-
-			switch event.Type {
-			case watch.Added, watch.Modified:
-				obj, objErr := rolloutObjectFromRuntime(event.Object)
-				if objErr != nil {
-					_ = writeRolloutSSEEvent(
-						c,
-						watchEventError,
-						buildRolloutWatchPayload(nil, namespace, name, listOpts.ResourceVersion, objErr.Error()),
-					)
-					continue
-				}
-				_, _, rv := extractRolloutWatchMeta(obj)
-				if rv != "" {
-					listOpts.ResourceVersion = rv
-				}
-				if !writeRolloutSSEEvent(c, watchEventUpsert, buildRolloutWatchPayload(obj, namespace, name, listOpts.ResourceVersion, "")) {
-					return
-				}
-			case watch.Deleted:
-				obj, objErr := rolloutObjectFromRuntime(event.Object)
-				if objErr != nil {
-					_ = writeRolloutSSEEvent(
-						c,
-						watchEventError,
-						buildRolloutWatchPayload(nil, namespace, name, listOpts.ResourceVersion, objErr.Error()),
-					)
-					continue
-				}
-				_, _, rv := extractRolloutWatchMeta(obj)
-				if rv != "" {
-					listOpts.ResourceVersion = rv
-				}
-				if !writeRolloutSSEEvent(c, watchEventDelete, buildRolloutWatchPayload(obj, namespace, name, listOpts.ResourceVersion, "")) {
-					return
-				}
-			case watch.Error:
-				message := "watch error"
-				if status, ok := event.Object.(*metav1.Status); ok && status.Message != "" {
-					message = status.Message
-				}
-				if !writeRolloutSSEEvent(c, watchEventError, buildRolloutWatchPayload(nil, namespace, name, listOpts.ResourceVersion, message)) {
-					return
-				}
+			if !handleRolloutWatchResultEvent(c, namespace, name, &listOpts, event) {
+				return
 			}
 		}
 	}
@@ -382,7 +393,7 @@ func PauseRollout(c *gin.Context) {
 	response.Success(c, gin.H{"message": "Rollout paused successfully"})
 }
 
-// ResumeRollout sets the .spec.paused field to false
+// ResumeRollout resumes rollout execution by setting .spec.paused=false.
 func ResumeRollout(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
@@ -421,6 +432,88 @@ func ResumeRollout(c *gin.Context) {
 		zap.String("name", name),
 	)
 	response.Success(c, gin.H{"message": "Rollout resumed successfully"})
+}
+
+// EnableRollout enables a rollout by setting .spec.disabled=false.
+func EnableRollout(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		logger.Log.Error("Failed to get rollout for enable",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
+		return
+	}
+	if err := unstructured.SetNestedField(rollout.Object, false, "spec", "disabled"); err != nil {
+		logger.Log.Error("Failed to unset disabled field",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
+		return
+	}
+	_, err = GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Update(context.TODO(), rollout, metav1.UpdateOptions{})
+	if err != nil {
+		logger.Log.Error("Failed to update rollout for enable",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
+		return
+	}
+	logger.Log.Info("Rollout enabled successfully",
+		zap.String("namespace", namespace),
+		zap.String("name", name),
+	)
+	response.Success(c, gin.H{"message": "Rollout enabled successfully"})
+}
+
+// DisableRollout disables a rollout by setting .spec.disabled=true.
+func DisableRollout(c *gin.Context) {
+	namespace := c.Param("namespace")
+	name := c.Param("name")
+
+	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		logger.Log.Error("Failed to get rollout for disable",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
+		return
+	}
+	if err := unstructured.SetNestedField(rollout.Object, true, "spec", "disabled"); err != nil {
+		logger.Log.Error("Failed to set disabled field",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
+		return
+	}
+	_, err = GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Update(context.TODO(), rollout, metav1.UpdateOptions{})
+	if err != nil {
+		logger.Log.Error("Failed to update rollout for disable",
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+			zap.Error(err),
+		)
+		response.InternalError(c, err)
+		return
+	}
+	logger.Log.Info("Rollout disabled successfully",
+		zap.String("namespace", namespace),
+		zap.String("name", name),
+	)
+	response.Success(c, gin.H{"message": "Rollout disabled successfully"})
 }
 
 // UndoRollout is a placeholder (real logic would require more context, e.g. revision history)
@@ -760,6 +853,52 @@ type setRolloutImageRequest struct {
 	InitContainer bool   `json:"initContainer"`
 }
 
+func bindSetRolloutImageRequest(c *gin.Context) (setRolloutImageRequest, bool) {
+	var req setRolloutImageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request payload")
+		return req, false
+	}
+	if strings.TrimSpace(req.Container) == "" || strings.TrimSpace(req.Image) == "" {
+		response.BadRequest(c, "container and image are required")
+		return req, false
+	}
+	return req, true
+}
+
+func resolveRolloutImageTarget(
+	c *gin.Context,
+	rollout *unstructured.Unstructured,
+) (string, string, schema.GroupVersionResource, bool) {
+	workloadRef := extractWorkloadRefFromRollout(rollout)
+	if workloadRef == nil {
+		response.Error(c, http.StatusConflict, "workloadRef is not configured", nil, "WORKLOAD_REF_MISSING")
+		return "", "", schema.GroupVersionResource{}, false
+	}
+
+	workloadKind, _ := workloadRef["kind"].(string)
+	workloadName, _ := workloadRef["name"].(string)
+	if workloadKind == "" || workloadName == "" {
+		response.Error(c, http.StatusConflict, "workloadRef is incomplete", nil, "WORKLOAD_REF_INVALID")
+		return "", "", schema.GroupVersionResource{}, false
+	}
+
+	workloadGVR, _, err := resolveWorkloadRefGVR(workloadKind)
+	if err != nil {
+		response.Error(c, http.StatusNotImplemented, "workload kind does not support image update", err, "UNSUPPORTED_WORKLOAD_KIND")
+		return "", "", schema.GroupVersionResource{}, false
+	}
+
+	return workloadKind, workloadName, workloadGVR, true
+}
+
+func rolloutContainerPath(useInitContainers bool) []string {
+	if useInitContainers {
+		return []string{"spec", "template", "spec", "initContainers"}
+	}
+	return []string{"spec", "template", "spec", "containers"}
+}
+
 func updateImageInContainerList(containerList []interface{}, containerName, image string) ([]interface{}, bool) {
 	updated := false
 	result := make([]interface{}, 0, len(containerList))
@@ -787,13 +926,8 @@ func SetRolloutImage(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
 
-	var req setRolloutImageRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request payload")
-		return
-	}
-	if strings.TrimSpace(req.Container) == "" || strings.TrimSpace(req.Image) == "" {
-		response.BadRequest(c, "container and image are required")
+	req, ok := bindSetRolloutImageRequest(c)
+	if !ok {
 		return
 	}
 	useInitContainers := req.IsInit || req.InitContainer
@@ -804,21 +938,8 @@ func SetRolloutImage(c *gin.Context) {
 		return
 	}
 
-	workloadRef := extractWorkloadRefFromRollout(rollout)
-	if workloadRef == nil {
-		response.Error(c, http.StatusConflict, "workloadRef is not configured", nil, "WORKLOAD_REF_MISSING")
-		return
-	}
-	workloadKind, _ := workloadRef["kind"].(string)
-	workloadName, _ := workloadRef["name"].(string)
-	if workloadKind == "" || workloadName == "" {
-		response.Error(c, http.StatusConflict, "workloadRef is incomplete", nil, "WORKLOAD_REF_INVALID")
-		return
-	}
-
-	workloadGVR, _, err := resolveWorkloadRefGVR(workloadKind)
-	if err != nil {
-		response.Error(c, http.StatusNotImplemented, "workload kind does not support image update", err, "UNSUPPORTED_WORKLOAD_KIND")
+	workloadKind, workloadName, workloadGVR, ok := resolveRolloutImageTarget(c, rollout)
+	if !ok {
 		return
 	}
 
@@ -828,10 +949,7 @@ func SetRolloutImage(c *gin.Context) {
 		return
 	}
 
-	path := []string{"spec", "template", "spec", "containers"}
-	if useInitContainers {
-		path = []string{"spec", "template", "spec", "initContainers"}
-	}
+	path := rolloutContainerPath(useInitContainers)
 
 	containerList, found, _ := unstructured.NestedSlice(workload.Object, path...)
 	if !found || len(containerList) == 0 {
@@ -1338,43 +1456,7 @@ func GetRolloutPods(c *gin.Context) {
 
 // AbortRollout disables the rollout by setting spec.disabled = true
 func AbortRollout(c *gin.Context) {
-	namespace := c.Param("namespace")
-	name := c.Param("name")
-
-	rollout, err := GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
-	if err != nil {
-		logger.Log.Error("Failed to get rollout for abort",
-			zap.String("namespace", namespace),
-			zap.String("name", name),
-			zap.Error(err),
-		)
-		response.InternalError(c, err)
-		return
-	}
-	if err := unstructured.SetNestedField(rollout.Object, true, "spec", "disabled"); err != nil {
-		logger.Log.Error("Failed to set disabled field",
-			zap.String("namespace", namespace),
-			zap.String("name", name),
-			zap.Error(err),
-		)
-		response.InternalError(c, err)
-		return
-	}
-	_, err = GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Update(context.TODO(), rollout, metav1.UpdateOptions{})
-	if err != nil {
-		logger.Log.Error("Failed to update rollout for abort",
-			zap.String("namespace", namespace),
-			zap.String("name", name),
-			zap.Error(err),
-		)
-		response.InternalError(c, err)
-		return
-	}
-	logger.Log.Info("Rollout aborted successfully",
-		zap.String("namespace", namespace),
-		zap.String("name", name),
-	)
-	response.Success(c, gin.H{"message": "Rollout aborted successfully"})
+	DisableRollout(c)
 }
 
 // RetryRollout retries a rollout by unpausing and adding a retry annotation

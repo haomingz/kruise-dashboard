@@ -21,16 +21,17 @@ import {
   RefreshCw,
   Loader2,
   ArrowUpCircle,
+  PlayCircle,
   ChevronRight,
   XCircle,
   RotateCw,
 } from "lucide-react"
 import Link from "next/link"
 import { useState, useCallback } from "react"
-import { restartRollout, approveRollout, abortRollout, retryRollout, promoteRollout } from "@/api/rollout"
+import { restartRollout, approveRollout, retryRollout, promoteRollout, resumeRollout, enableRollout, disableRollout } from "@/api/rollout"
 import { useSWRConfig } from "swr"
 
-type CardAction = "restart" | "retry" | "promote" | "approve" | "abort"
+type CardAction = "restart" | "retry" | "promote" | "approve" | "resume" | "enable" | "disable"
 
 export function RolloutCard({ rollout }: Readonly<{ rollout: TransformedRollout }>) {
   const { mutate } = useSWRConfig()
@@ -60,7 +61,12 @@ export function RolloutCard({ rollout }: Readonly<{ rollout: TransformedRollout 
     [mutate, rollout.namespace, rollout.name]
   )
 
-  const isActive = rollout.phase === "Paused" || rollout.phase === "Progressing"
+  const phase = rollout.phase.toLowerCase()
+  const isDisabled = rollout.disabled || phase === "disabled"
+  const isActive = !isDisabled && (phase === "paused" || phase === "progressing")
+  const canResume = !isDisabled && (phase === "paused" || rollout.paused)
+  const canEnable = isDisabled
+  const canDisable = !isDisabled
 
   return (
     <div className="rounded-xl border bg-card text-card-foreground shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-border hover:shadow-md">
@@ -151,6 +157,39 @@ export function RolloutCard({ rollout }: Readonly<{ rollout: TransformedRollout 
           confirmDesc={`This will restart the rollout "${rollout.name}".`}
           onConfirm={() => handleAction("restart", () => restartRollout(rollout.namespace, rollout.name))}
         />
+        {canResume && (
+          <CardActionBtn
+            label="RESUME"
+            icon={PlayCircle}
+            loading={actionLoading === "resume"}
+            disabled={actionLoading !== null}
+            confirmTitle="Resume Rollout?"
+            confirmDesc={`This will re-enable and resume the rollout "${rollout.name}".`}
+            onConfirm={() => handleAction("resume", () => resumeRollout(rollout.namespace, rollout.name))}
+          />
+        )}
+        {canEnable && (
+          <CardActionBtn
+            label="ENABLE"
+            icon={PlayCircle}
+            loading={actionLoading === "enable"}
+            disabled={actionLoading !== null}
+            confirmTitle="Enable Rollout?"
+            confirmDesc={`This will enable the rollout "${rollout.name}".`}
+            onConfirm={() => handleAction("enable", () => enableRollout(rollout.namespace, rollout.name))}
+          />
+        )}
+        {canDisable && (
+          <CardActionBtn
+            label="DISABLE"
+            icon={XCircle}
+            loading={actionLoading === "disable"}
+            disabled={actionLoading !== null}
+            confirmTitle="Disable Rollout?"
+            confirmDesc={`This will disable the rollout "${rollout.name}".`}
+            onConfirm={() => handleAction("disable", () => disableRollout(rollout.namespace, rollout.name))}
+          />
+        )}
         {isActive && (
           <>
             <CardActionBtn
@@ -161,15 +200,6 @@ export function RolloutCard({ rollout }: Readonly<{ rollout: TransformedRollout 
               confirmTitle="Retry Rollout?"
               confirmDesc={`This will retry the current step of rollout "${rollout.name}".`}
               onConfirm={() => handleAction("retry", () => retryRollout(rollout.namespace, rollout.name))}
-            />
-            <CardActionBtn
-              label="ABORT"
-              icon={XCircle}
-              loading={actionLoading === "abort"}
-              disabled={actionLoading !== null}
-              confirmTitle="Abort Rollout?"
-              confirmDesc={`This will abort the rollout "${rollout.name}" by disabling it.`}
-              onConfirm={() => handleAction("abort", () => abortRollout(rollout.namespace, rollout.name))}
             />
             <CardActionBtn
               label="PROMOTE"

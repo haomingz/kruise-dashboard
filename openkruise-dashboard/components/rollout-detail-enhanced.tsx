@@ -31,7 +31,8 @@ import {
   pauseRollout,
   restartRollout,
   resumeRollout,
-  abortRollout,
+  enableRollout,
+  disableRollout,
   retryRollout,
   rollbackRollout,
 } from "@/api/rollout"
@@ -52,7 +53,7 @@ import { useParams, useRouter } from "next/navigation"
 import { useMemo, useState, useCallback } from "react"
 import { useSWRConfig } from "swr"
 
-type ActionType = "restart" | "retry" | "pause" | "resume" | "promote" | "approve" | "abort" | "rollback"
+type ActionType = "restart" | "retry" | "pause" | "resume" | "promote" | "approve" | "enable" | "disable" | "rollback"
 
 export function RolloutDetailEnhanced() {
   const params = useParams()
@@ -156,12 +157,15 @@ export function RolloutDetailEnhanced() {
     )
   }
 
-  const canPause = rollout.phase === "Progressing"
-  const canResume = rollout.phase === "Paused" || rollout.paused
-  const canPromote = rollout.phase === "Paused" || rollout.phase === "Progressing"
-  const canApprove = rollout.phase === "Paused" || rollout.phase === "Progressing"
-  const canAbort = rollout.phase === "Paused" || rollout.phase === "Progressing"
-  const canRetry = rollout.phase === "Paused" || rollout.phase === "Progressing" || rollout.phase === "Degraded"
+  const phase = rollout.phase.toLowerCase()
+  const isDisabled = rollout.disabled || phase === "disabled"
+  const canPause = !isDisabled && phase === "progressing"
+  const canResume = !isDisabled && (phase === "paused" || rollout.paused)
+  const canPromote = !isDisabled && (phase === "paused" || phase === "progressing")
+  const canApprove = !isDisabled && (phase === "paused" || phase === "progressing")
+  const canDisable = !isDisabled
+  const canEnable = isDisabled
+  const canRetry = !isDisabled && (phase === "paused" || phase === "progressing" || phase === "degraded")
   const rollbackSupported = rollout.workloadRefKind.toLowerCase() === "deployment"
   const rollbackDisabledReason = "当前仅支持 Deployment 回滚"
 
@@ -231,16 +235,27 @@ export function RolloutDetailEnhanced() {
                   onConfirm={() => handleAction("resume", () => resumeRollout(namespace, name))}
                 />
               )}
-              {canAbort && (
+              {canDisable && (
                 <ActionButton
-                  label="ABORT"
+                  label="DISABLE"
                   icon={XCircle}
-                  loading={actionLoading === "abort"}
+                  loading={actionLoading === "disable"}
                   disabled={actionLoading !== null}
-                  confirmTitle="Abort Rollout?"
-                  confirmDescription={`This will abort the rollout "${rollout.name}" by disabling it.`}
-                  onConfirm={() => handleAction("abort", () => abortRollout(namespace, name))}
+                  confirmTitle="Disable Rollout?"
+                  confirmDescription={`This will disable the rollout "${rollout.name}".`}
+                  onConfirm={() => handleAction("disable", () => disableRollout(namespace, name))}
                   variant="destructive"
+                />
+              )}
+              {canEnable && (
+                <ActionButton
+                  label="ENABLE"
+                  icon={PlayCircle}
+                  loading={actionLoading === "enable"}
+                  disabled={actionLoading !== null}
+                  confirmTitle="Enable Rollout?"
+                  confirmDescription={`This will enable the rollout "${rollout.name}".`}
+                  onConfirm={() => handleAction("enable", () => enableRollout(namespace, name))}
                 />
               )}
               {canPromote && (

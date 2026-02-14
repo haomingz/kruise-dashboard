@@ -52,6 +52,7 @@ export interface TransformedRollout {
   trafficPercent: number
   message?: string
   paused?: boolean
+  disabled?: boolean
 }
 
 export interface TransformedRolloutDetail extends TransformedRollout {
@@ -169,6 +170,7 @@ export function transformRollout(rollout: Record<string, unknown>): TransformedR
 
   const workloadRefObj = (spec.workloadRef as Record<string, unknown>) || {}
   const specPaused = spec.paused as boolean | undefined
+  const specDisabled = spec.disabled as boolean | undefined
 
   return {
     name: (metadata.name as string) || 'Unknown',
@@ -190,6 +192,7 @@ export function transformRollout(rollout: Record<string, unknown>): TransformedR
     trafficPercent: progress.trafficPercent,
     message: (status.message as string) || undefined,
     paused: specPaused ?? false,
+    disabled: specDisabled ?? false,
   }
 }
 

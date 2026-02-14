@@ -184,6 +184,24 @@ export const approveRollout = async (namespace: string, name: string): Promise<v
   }
 }
 
+export const enableRollout = async (namespace: string, name: string): Promise<void> => {
+  try {
+    await axiosInstance.post(`/rollout/enable/${namespace}/${name}`)
+  } catch (error) {
+    console.error(`Error enabling rollout ${namespace}/${name}:`, error)
+    throw error
+  }
+}
+
+export const disableRollout = async (namespace: string, name: string): Promise<void> => {
+  try {
+    await axiosInstance.post(`/rollout/disable/${namespace}/${name}`)
+  } catch (error) {
+    console.error(`Error disabling rollout ${namespace}/${name}:`, error)
+    throw error
+  }
+}
+
 export const abortRollout = async (namespace: string, name: string): Promise<void> => {
   try {
     await axiosInstance.post(`/rollout/abort/${namespace}/${name}`)
