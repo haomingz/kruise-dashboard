@@ -68,10 +68,12 @@ Kruise Dashboard 后端提供 REST API + SSE Watch，用于管理 Kubernetes 集
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/rollout/pause/:namespace/:name` | 暂停 |
-| POST | `/rollout/resume/:namespace/:name` | 恢复 |
+| POST | `/rollout/resume/:namespace/:name` | 恢复（仅设置 `spec.paused=false`） |
+| POST | `/rollout/enable/:namespace/:name` | 启用（设置 `spec.disabled=false`） |
+| POST | `/rollout/disable/:namespace/:name` | 禁用（设置 `spec.disabled=true`） |
 | POST | `/rollout/restart/:namespace/:name` | 重启 |
 | POST | `/rollout/retry/:namespace/:name` | 重试当前步骤 |
-| POST | `/rollout/abort/:namespace/:name` | 终止（`spec.disabled=true`） |
+| POST | `/rollout/abort/:namespace/:name` | 兼容接口，等价于 `disable` |
 | POST | `/rollout/promote/:namespace/:name` | Promote（推进当前步骤，非 full） |
 | POST | `/rollout/approve/:namespace/:name` | Promote-Full（兼容旧语义） |
 | POST | `/rollout/rollback/:namespace/:name` | 回滚到稳定版本（Phase 1 仅 Deployment） |
@@ -82,6 +84,13 @@ Kruise Dashboard 后端提供 REST API + SSE Watch，用于管理 Kubernetes 集
 
 - `promote`：继续当前步骤（不跳过全流程）。
 - `approve`：保持兼容，作为 `promote-full` 使用。
+
+### Resume / Enable / Disable 语义
+
+- `resume`：仅恢复暂停状态（`spec.paused=false`），不修改 `spec.disabled`。
+- `enable`：仅解除禁用状态（`spec.disabled=false`），不修改 `spec.paused`。
+- `disable`：设置 `spec.disabled=true`。
+- `abort`：兼容旧调用，当前实现直接复用 `disable`。
 
 ### Rollback 语义（Phase 1）
 
@@ -175,8 +184,16 @@ data: {"type":"rollout","namespace":"default","name":"demo","resourceVersion":"1
 ## 前端 API 映射（核心新增）
 
 `openkruise-dashboard/api/rollout.ts` 已新增：
+- `pauseRollout`
+- `resumeRollout`
+- `enableRollout`
+- `disableRollout`
+- `abortRollout`
+- `retryRollout`
 - `promoteRollout`
+- `approveRollout`
 - `rollbackRollout`
+- `restartRollout`
 - `watchRollouts`
 - `watchRollout`
 - `getRolloutAnalysis`

@@ -6,13 +6,15 @@
 
 - 实时查看 CloneSet、StatefulSet、DaemonSet、BroadcastJob 等工作负载
 - 渐进式发布（Rollout）的监控与控制
+- Rollout 支持独立启用/禁用（`enable` / `disable`）与暂停/恢复（`pause` / `resume`）分离控制
 - Rollout Watch（SSE）优先 + 自动回退轮询
 - Promote / Promote-Full 语义拆分
 - Rollback（第一阶段支持 Deployment）
 - Analysis 占位弹窗（Summary + Metrics）
 - Rollout 列表高级筛选（收藏、Needs Attention、多状态、label:value、多关键字）
-- 键盘快捷键（`/`、方向键、`Enter`、`Esc`、`Shift+H`）
+- 键盘快捷键（`/` 聚焦搜索、`Shift+H` 打开快捷键帮助）
 - 容器与 initContainer 镜像编辑
+- Workload 表格支持变体（`WorkloadTable` / `WorkloadTableWithoutImage`）
 - 工作负载扩缩容、重启、删除操作
 - Pod 详情和状态查看
 - 集群资源使用概览
@@ -73,9 +75,9 @@ openkruise-dashboard/
 │   ├── rollout-steps-pipeline.tsx   # Steps 流水线
 │   ├── workload-cards.tsx           # 工作负载卡片
 │   ├── workload-detail.tsx          # 工作负载详情
-│   ├── workload-table.tsx           # 工作负载表格
+│   ├── workload-table.tsx           # 工作负载表格（含 with-image / without-image 变体）
 │   ├── workload-table.test.tsx      # 表格组件测试
-│   ├── workload-tabs.tsx            # 工作负载标签页
+│   ├── workload-tabs.tsx            # 工作负载标签页（按类型选择表格变体）
 │   └── ui/                          # shadcn/ui 基础组件
 │       ├── avatar.tsx
 │       ├── badge.tsx
@@ -91,7 +93,7 @@ openkruise-dashboard/
 ├── api/                             # API 客户端层
 │   ├── axiosInstance.ts             # Axios 实例配置
 │   ├── cluster.ts                   # 集群指标 API
-│   ├── rollout.ts                   # Rollout 管理 API（含 watch/promote/rollback/analysis）
+│   ├── rollout.ts                   # Rollout 管理 API（含 enable/disable/watch/promote/rollback/analysis）
 │   ├── workload.ts                  # 工作负载管理 API
 │   └── namespace.ts                 # 命名空间 API
 ├── hooks/                           # SWR 数据请求 Hooks

@@ -38,9 +38,6 @@
 
 ### 3.2 键盘效率
 - `/` 聚焦搜索框
-- `ArrowUp/ArrowDown` 移动选中项
-- `Enter` 进入详情
-- `Esc` 退出选中
 - `Shift+H` 打开快捷键帮助弹层
 
 ## 4. 详情页能力
@@ -50,10 +47,16 @@
 - `RETRY`
 - `PAUSE`
 - `RESUME`
-- `ABORT`
+- `DISABLE`
+- `ENABLE`（仅在 Disabled 状态展示）
 - `PROMOTE`（推进当前步骤）
 - `PROMOTE-FULL`（兼容 `approve` 语义）
 - `ANALYSIS`（打开分析弹窗）
+
+说明：
+- `RESUME` 仅恢复暂停（`spec.paused=false`）。
+- `ENABLE` / `DISABLE` 用于独立切换禁用状态（`spec.disabled`）。
+- `ABORT` 保留为兼容接口，后端实现等价于 `DISABLE`。
 
 ### 4.2 Analysis 占位框架
 - API：`GET /api/v1/rollout/:namespace/:name/analysis`
@@ -99,6 +102,8 @@
 - `POST /rollout/rollback/:namespace/:name`
 - `GET /rollout/:namespace/:name/analysis`
 - `POST /rollout/set-image/:namespace/:name`
+- `POST /rollout/enable/:namespace/:name`
+- `POST /rollout/disable/:namespace/:name`
 
 ### 前端新增类型
 - `RolloutWatchEvent`

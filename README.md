@@ -5,7 +5,7 @@ OpenKruise 工作负载可视化管理平台。提供对 CloneSet、Advanced Sta
 ## 功能特性
 
 - **工作负载管理**：查看、扩缩容、重启、删除 OpenKruise 工作负载
-- **发布管理**：监控和控制渐进式发布（Rollout），支持暂停、恢复、回滚、审批
+- **发布管理**：监控和控制渐进式发布（Rollout），支持暂停、恢复、启用、禁用、回滚、Promote / Promote-Full
 - **集群监控**：实时查看集群资源使用和性能指标
 - **Namespace 切换**：全局命名空间选择器，快速在不同命名空间间切换
 - **Pod 管理**：查看每个工作负载的 Pod 详情和状态
@@ -206,6 +206,7 @@ pnpm test:watch        # 监听模式
 - [API 接口参考](docs/api.md)
 - [系统架构](docs/architecture.md)
 - [部署指南](docs/deployment.md)
+- [Rollouts Dashboard 设计](docs/rollouts-dashboard-design.md)
 - [后端开发文档](openkruise-backend/README.md)
 - [前端开发文档](openkruise-dashboard/README.md)
 

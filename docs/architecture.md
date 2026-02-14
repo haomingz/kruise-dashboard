@@ -137,9 +137,9 @@ graph TB
     AppRouter --> Comps
 
     subgraph Comps["Components (components/)"]
-        DashComps["dashboard-page.tsx — 布局 + NamespaceSelector"]
+        DashComps["dashboard-page.tsx — 布局 + NamespaceSelector + 动态加载"]
         NsComps["namespace-*.tsx — Namespace Provider & Selector"]
-        WorkloadComps["workload-*.tsx — 工作负载组件"]
+        WorkloadComps["workload-*.tsx — 工作负载组件（含表格变体）"]
         RolloutComps["rollout-*.tsx — Rollout 组件"]
         Overview["overview.tsx — 集群概览"]
         UI["ui/ — shadcn/ui 原子组件"]
@@ -152,6 +152,7 @@ graph TB
         UseCluster["use-cluster.ts — 集群指标 (30s 轮询)"]
         UseWorkloads["use-workloads.ts — 工作负载列表 & 详情"]
         UseRollouts["use-rollouts.ts — Rollout 列表 & 详情"]
+        UseRolloutsWatch["use-rollouts-watch.ts — Rollout Watch + 轮询回退"]
     end
 
     SWR --> Api
@@ -179,7 +180,8 @@ graph TB
 1. `NamespaceProvider`（`namespace-provider.tsx`）在 `layout.tsx` 中包裹整个应用
 2. `NamespaceSelector`（`namespace-selector.tsx`）作为全局下拉选择器展示在导航栏
 3. 各页面通过 `useNamespace()` hook 获取当前选中的命名空间
-4. SWR hooks（`use-workloads.ts`、`use-rollouts.ts`）自动响应命名空间切换刷新数据
+4. `NamespaceProvider` 使用 `useMemo` 稳定 Context value，减少不必要重渲染
+5. SWR hooks（`use-workloads.ts`、`use-rollouts.ts`）自动响应命名空间切换刷新数据
 
 ### 数据流
 
@@ -204,17 +206,25 @@ sequenceDiagram
     Hook-->>Comp: 更新状态 + 缓存
     Comp-->>User: UI 渲染
 
-    Note over Hook,Api: SWR 每 30s 自动轮询刷新
+    Note over Hook,Api: Rollout 页面优先 SSE Watch，失败后自动回退 SWR 轮询
 ```
 
 ### SWR 缓存策略
 
-前端使用 SWR 进行数据请求管理：
+前端使用 SWR + Watch 进行数据请求管理：
 
-- **自动轮询**：列表页每 30 秒自动刷新
+- **Watch 优先**：Rollout 列表/详情优先走 SSE（`use-rollouts-watch.ts`）
+- **自动回退**：Watch 连续失败后自动回退到 SWR 轮询
+- **自动轮询**：非 Watch 场景列表页默认 30 秒刷新
 - **缓存优先**：显示缓存数据的同时在后台重新获取
 - **错误处理**：SWR 自动处理请求失败和重试
 - **Key 管理**：基于命名空间和资源名称生成唯一的缓存键
+
+### 前端性能优化（近期）
+
+- `dashboard-page.tsx` 对 `WorkloadTabs` 和 `RolloutVisualization` 使用 `next/dynamic` 延迟加载，降低首页初始渲染成本。
+- `workload-table.tsx` 拆分 `WorkloadTable` 与 `WorkloadTableWithoutImage` 两种变体，通过 `workload-tabs.tsx` 按资源类型选择渲染，减少不必要列展示。
+- `namespace-provider.tsx` 使用 `useMemo` 缓存 Context 值，降低下游消费者重复渲染概率。
 
 ### 组件设计
 

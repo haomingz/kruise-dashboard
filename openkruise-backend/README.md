@@ -92,12 +92,14 @@ make docker-push      # 推送 Docker 镜像
 - `GET /rollout/history/:namespace/:name` — Rollout 历史
 - `GET /rollout/:namespace/:name/analysis` — Analysis 占位信息
 - `POST /rollout/pause/:namespace/:name` — 暂停 Rollout
-- `POST /rollout/resume/:namespace/:name` — 恢复 Rollout
-- `POST /rollout/undo/:namespace/:name` — 回滚 Rollout
+- `POST /rollout/resume/:namespace/:name` — 恢复 Rollout（仅设置 `spec.paused=false`）
+- `POST /rollout/enable/:namespace/:name` — 启用 Rollout（设置 `spec.disabled=false`）
+- `POST /rollout/disable/:namespace/:name` — 禁用 Rollout（设置 `spec.disabled=true`）
+- `POST /rollout/undo/:namespace/:name` — 占位接口（未实现）
 - `POST /rollout/restart/:namespace/:name` — 重启 Rollout
 - `POST /rollout/promote/:namespace/:name` — Promote（推进当前步骤）
 - `POST /rollout/approve/:namespace/:name` — Promote-Full（兼容语义）
-- `POST /rollout/abort/:namespace/:name` — Abort（禁用 Rollout）
+- `POST /rollout/abort/:namespace/:name` — 兼容接口，当前等价于 `disable`
 - `POST /rollout/retry/:namespace/:name` — Retry（重试步骤）
 - `POST /rollout/rollback/:namespace/:name` — 回滚到稳定版本（Phase 1 仅 Deployment）
 - `POST /rollout/set-image/:namespace/:name` — 更新容器/initContainer 镜像

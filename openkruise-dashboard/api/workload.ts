@@ -9,7 +9,7 @@ export interface Workload {
     replicas?: number;
     readyReplicas?: number;
     createdAt?: string;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 /**
