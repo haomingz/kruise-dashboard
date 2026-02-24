@@ -37,6 +37,7 @@ import {
   rollbackRollout,
 } from "@/api/rollout"
 import type { RevisionInfo, ContainerInfo } from "@/api/rollout"
+import type { TransformedRolloutDetail } from "@/lib/rollout-utils"
 import {
   ArrowLeft,
   RefreshCw,
@@ -54,6 +55,14 @@ import { useMemo, useState, useCallback } from "react"
 import { useSWRConfig } from "swr"
 
 type ActionType = "restart" | "retry" | "pause" | "resume" | "promote" | "approve" | "enable" | "disable" | "rollback"
+
+function getActionErrorMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    const res = (error as { response?: { data?: { message?: string } } }).response?.data?.message
+    if (typeof res === "string") return res
+  }
+  return "Action failed"
+}
 
 export function RolloutDetailEnhanced() {
   const params = useParams()
@@ -82,7 +91,7 @@ export function RolloutDetailEnhanced() {
 
   const rollout = useMemo(() => {
     if (!rawRolloutData) return null
-    return transformRolloutDetail(rawRolloutData as Record<string, unknown>)
+    return transformRolloutDetail(rawRolloutData)
   }, [rawRolloutData])
 
   const pods = useMemo(() => {
@@ -106,19 +115,17 @@ export function RolloutDetailEnhanced() {
         mutate(`rollout-${namespace}-${name}`)
         mutate(`rollout-pods-${namespace}-${name}`)
       } catch (error) {
-        const message =
-          typeof error === "object" &&
-          error !== null &&
-          "response" in error &&
-          typeof (error as { response?: { data?: { message?: string } } }).response?.data?.message === "string"
-            ? (error as { response?: { data?: { message?: string } } }).response?.data?.message || "Action failed"
-            : "Action failed"
-        setActionError(message)
+        setActionError(getActionErrorMessage(error))
       } finally {
         setActionLoading(null)
       }
     },
     [mutate, namespace, name]
+  )
+
+  const handleRollback = useCallback(
+    () => handleAction("rollback", () => rollbackRollout(namespace, name).then(() => undefined)),
+    [handleAction, namespace, name]
   )
 
   if (isLoading) {
@@ -157,17 +164,32 @@ export function RolloutDetailEnhanced() {
     )
   }
 
-  const phase = rollout.phase.toLowerCase()
-  const isDisabled = rollout.disabled || phase === "disabled"
-  const canPause = !isDisabled && phase === "progressing"
-  const canResume = !isDisabled && (phase === "paused" || rollout.paused)
-  const canPromote = !isDisabled && (phase === "paused" || phase === "progressing")
-  const canApprove = !isDisabled && (phase === "paused" || phase === "progressing")
-  const canDisable = !isDisabled
-  const canEnable = isDisabled
-  const canRetry = !isDisabled && (phase === "paused" || phase === "progressing" || phase === "degraded")
   const rollbackSupported = rollout.workloadRefKind.toLowerCase() === "deployment"
   const rollbackDisabledReason = "当前仅支持 Deployment 回滚"
+
+  function renderRevisionsOrPodsSection(r: TransformedRolloutDetail) {
+    if (revisions.length > 0) {
+      return (
+        <RolloutRevisions
+          revisions={revisions}
+          rolloutName={r.name}
+          namespace={namespace}
+          rollbackEnabled={config.rollbackEnabled && rollbackSupported}
+          rollbackDisabledReason={rollbackDisabledReason}
+          onRollback={(_revision) => handleRollback()}
+        />
+      )
+    }
+    if (pods.length > 0) {
+      return <PodStatusGrid pods={pods} />
+    }
+    return (
+      <PodStatusGridSimple
+        ready={r.stableReplicas + r.canaryReplicas}
+        total={r.stableReplicas + r.canaryReplicas}
+      />
+    )
+  }
 
   return (
     <div className="flex h-dvh flex-col bg-muted/40 overflow-hidden">
@@ -193,104 +215,14 @@ export function RolloutDetailEnhanced() {
             </Badge>
 
             <div className="flex items-center gap-1.5 ml-auto flex-wrap">
-              <ActionButton
-                label="RESTART"
-                icon={RefreshCw}
-                loading={actionLoading === "restart"}
-                disabled={actionLoading !== null}
-                confirmTitle="Restart Rollout?"
-                confirmDescription={`This will restart the rollout "${rollout.name}".`}
-                onConfirm={() => handleAction("restart", () => restartRollout(namespace, name))}
+              <DetailActionButtons
+                rollout={rollout}
+                namespace={namespace}
+                name={name}
+                actionLoading={actionLoading}
+                onAction={handleAction}
+                onOpenAnalysis={() => setAnalysisOpen(true)}
               />
-              {canRetry && (
-                <ActionButton
-                  label="RETRY"
-                  icon={RotateCw}
-                  loading={actionLoading === "retry"}
-                  disabled={actionLoading !== null}
-                  confirmTitle="Retry Rollout?"
-                  confirmDescription={`This will retry the current step of rollout "${rollout.name}".`}
-                  onConfirm={() => handleAction("retry", () => retryRollout(namespace, name))}
-                />
-              )}
-              {canPause && (
-                <ActionButton
-                  label="PAUSE"
-                  icon={PauseCircle}
-                  loading={actionLoading === "pause"}
-                  disabled={actionLoading !== null}
-                  confirmTitle="Pause Rollout?"
-                  confirmDescription={`This will pause the rollout "${rollout.name}".`}
-                  onConfirm={() => handleAction("pause", () => pauseRollout(namespace, name))}
-                />
-              )}
-              {canResume && (
-                <ActionButton
-                  label="RESUME"
-                  icon={PlayCircle}
-                  loading={actionLoading === "resume"}
-                  disabled={actionLoading !== null}
-                  confirmTitle="Resume Rollout?"
-                  confirmDescription={`This will resume the rollout "${rollout.name}".`}
-                  onConfirm={() => handleAction("resume", () => resumeRollout(namespace, name))}
-                />
-              )}
-              {canDisable && (
-                <ActionButton
-                  label="DISABLE"
-                  icon={XCircle}
-                  loading={actionLoading === "disable"}
-                  disabled={actionLoading !== null}
-                  confirmTitle="Disable Rollout?"
-                  confirmDescription={`This will disable the rollout "${rollout.name}".`}
-                  onConfirm={() => handleAction("disable", () => disableRollout(namespace, name))}
-                  variant="destructive"
-                />
-              )}
-              {canEnable && (
-                <ActionButton
-                  label="ENABLE"
-                  icon={PlayCircle}
-                  loading={actionLoading === "enable"}
-                  disabled={actionLoading !== null}
-                  confirmTitle="Enable Rollout?"
-                  confirmDescription={`This will enable the rollout "${rollout.name}".`}
-                  onConfirm={() => handleAction("enable", () => enableRollout(namespace, name))}
-                />
-              )}
-              {canPromote && (
-                <ActionButton
-                  label="PROMOTE"
-                  icon={ArrowUpCircle}
-                  loading={actionLoading === "promote"}
-                  disabled={actionLoading !== null}
-                  confirmTitle="Promote Rollout?"
-                  confirmDescription={`This will promote rollout "${rollout.name}" to the next step.`}
-                  onConfirm={() => handleAction("promote", () => promoteRollout(namespace, name))}
-                />
-              )}
-              {canApprove && (
-                <ActionButton
-                  label="PROMOTE-FULL"
-                  icon={ArrowUpCircle}
-                  loading={actionLoading === "approve"}
-                  disabled={actionLoading !== null}
-                  confirmTitle="Promote Rollout?"
-                  confirmDescription={`This will fully promote the rollout "${rollout.name}".`}
-                  onConfirm={() => handleAction("approve", () => approveRollout(namespace, name))}
-                />
-              )}
-              {config.rolloutAnalysisEnabled && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 text-xs"
-                  onClick={() => setAnalysisOpen(true)}
-                >
-                  <BarChart3 className="h-3.5 w-3.5" />
-                  ANALYSIS
-                </Button>
-              )}
             </div>
           </div>
           {watchState.lastError && watchState.fallbackPolling && (
@@ -308,31 +240,31 @@ export function RolloutDetailEnhanced() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <section className="rounded-lg border bg-card p-3 space-y-1.5">
               <h3 className="text-sm font-semibold">Summary</h3>
-              <KV label="Strategy"><RolloutStrategyBadge strategy={rollout.strategy} /></KV>
-              <KV label="Step">
+              <Kv label="Strategy"><RolloutStrategyBadge strategy={rollout.strategy} /></Kv>
+              <Kv label="Step">
                 <Badge variant="outline" className="tabular-nums">
                   {rollout.isCompleted ? "Completed" : `${rollout.displayStep}/${rollout.totalSteps}`}
                 </Badge>
-              </KV>
+              </Kv>
               {rollout.strategy === "Canary" && (
                 <>
-                  <KV label="Set Weight">
+                  <Kv label="Set Weight">
                     <Badge variant="outline" className="tabular-nums">{rollout.trafficPercent}%</Badge>
-                  </KV>
+                  </Kv>
                   {rollout.actualWeight !== undefined && (
-                    <KV label="Actual Weight">
+                    <Kv label="Actual Weight">
                       <Badge variant="outline" className="tabular-nums">{rollout.actualWeight}%</Badge>
-                    </KV>
+                    </Kv>
                   )}
                 </>
               )}
-              <KV label="Replicas">
+              <Kv label="Replicas">
                 <span className="text-sm tabular-nums">Stable: {rollout.stableReplicas} / Canary: {rollout.canaryReplicas}</span>
-              </KV>
+              </Kv>
               {rollout.message && (
-                <KV label="Message">
+                <Kv label="Message">
                   <span className="text-xs text-muted-foreground truncate max-w-[240px]">{rollout.message}</span>
-                </KV>
+                </Kv>
               )}
             </section>
 
@@ -342,8 +274,8 @@ export function RolloutDetailEnhanced() {
                 <Server className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="text-sm font-medium">{rollout.workloadRef}</span>
               </div>
-              <KV label="Kind"><Badge variant="outline">{rollout.workloadRefKind}</Badge></KV>
-              <KV label="Age"><span className="text-sm">{rollout.age}</span></KV>
+              <Kv label="Kind"><Badge variant="outline">{rollout.workloadRefKind}</Badge></Kv>
+              <Kv label="Age"><span className="text-sm">{rollout.age}</span></Kv>
               {rollout.uid && (
                 <div className="flex items-start gap-2">
                   <span className="text-xs text-muted-foreground shrink-0">UID:</span>
@@ -359,7 +291,7 @@ export function RolloutDetailEnhanced() {
               <h3 className="text-sm font-semibold mb-2">Steps</h3>
               <RolloutStepsPipeline
                 steps={rollout.steps}
-                currentStep={rollout.currentStep}
+                currentStepIndex={rollout.currentStepIndex}
                 isCompleted={rollout.isCompleted}
                 phase={rollout.phase}
               />
@@ -369,25 +301,7 @@ export function RolloutDetailEnhanced() {
               <h3 className="text-sm font-semibold mb-2">
                 {revisions.length > 0 ? "Revisions" : "Pods"}
               </h3>
-              {revisions.length > 0 ? (
-                <RolloutRevisions
-                  revisions={revisions}
-                  rolloutName={rollout.name}
-                  namespace={namespace}
-                  rollbackEnabled={config.rollbackEnabled && rollbackSupported}
-                  rollbackDisabledReason={rollbackDisabledReason}
-                  onRollback={(_revision) =>
-                    handleAction("rollback", () => rollbackRollout(namespace, name).then(() => undefined))
-                  }
-                />
-              ) : pods.length > 0 ? (
-                <PodStatusGrid pods={pods} />
-              ) : (
-                <PodStatusGridSimple
-                  ready={rollout.stableReplicas + rollout.canaryReplicas}
-                  total={rollout.stableReplicas + rollout.canaryReplicas}
-                />
-              )}
+              {renderRevisionsOrPodsSection(rollout)}
               <div className="text-xs text-muted-foreground mt-1.5">
                 Total: {pods.length > 0 ? pods.length : rollout.stableReplicas + rollout.canaryReplicas} pods
               </div>
@@ -443,14 +357,14 @@ export function RolloutDetailEnhanced() {
           <section className="rounded-lg border bg-card p-3">
             <h3 className="text-sm font-semibold mb-1.5">Details</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
-              <KV label="Name"><span className="text-sm">{rollout.name}</span></KV>
-              <KV label="Namespace"><span className="text-sm">{rollout.namespace}</span></KV>
-              <KV label="Strategy"><span className="text-sm">{rollout.strategy}</span></KV>
-              <KV label="Phase"><span className="text-sm">{rollout.phase}</span></KV>
-              <KV label="Age"><span className="text-sm">{rollout.age}</span></KV>
-              <KV label="Generation"><span className="text-sm">{rollout.observedGeneration ?? "N/A"}</span></KV>
+              <Kv label="Name"><span className="text-sm">{rollout.name}</span></Kv>
+              <Kv label="Namespace"><span className="text-sm">{rollout.namespace}</span></Kv>
+              <Kv label="Strategy"><span className="text-sm">{rollout.strategy}</span></Kv>
+              <Kv label="Phase"><span className="text-sm">{rollout.phase}</span></Kv>
+              <Kv label="Age"><span className="text-sm">{rollout.age}</span></Kv>
+              <Kv label="Generation"><span className="text-sm">{rollout.observedGeneration ?? "N/A"}</span></Kv>
               {rollout.creationTimestamp && (
-                <KV label="Created"><span className="text-sm">{rollout.creationTimestamp}</span></KV>
+                <Kv label="Created"><span className="text-sm">{rollout.creationTimestamp}</span></Kv>
               )}
             </div>
           </section>
@@ -470,7 +384,131 @@ export function RolloutDetailEnhanced() {
 
 /* ---------- Helpers ---------- */
 
-function KV({ label, children }: Readonly<{ label: string; children: React.ReactNode }>) {
+function DetailActionButtons({
+  rollout,
+  namespace,
+  name,
+  actionLoading,
+  onAction,
+  onOpenAnalysis,
+}: Readonly<{
+  rollout: TransformedRolloutDetail
+  namespace: string
+  name: string
+  actionLoading: ActionType | null
+  onAction: (action: ActionType, fn: () => Promise<void>) => void
+  onOpenAnalysis: () => void
+}>) {
+  const phase = rollout.phase.toLowerCase()
+  const isDisabled = rollout.disabled || phase === "disabled"
+  const canPause = !isDisabled && phase === "progressing"
+  const canResume = !isDisabled && (phase === "paused" || rollout.paused)
+  const canPromote = !isDisabled && (phase === "paused" || phase === "progressing")
+  const canApprove = !isDisabled && (phase === "paused" || phase === "progressing")
+  const canDisable = !isDisabled
+  const canEnable = isDisabled
+  const canRetry = !isDisabled && (phase === "paused" || phase === "progressing" || phase === "degraded")
+
+  return (
+    <>
+      <ActionButton
+        label="RESTART"
+        icon={RefreshCw}
+        loading={actionLoading === "restart"}
+        disabled={actionLoading !== null}
+        confirmTitle="Restart Rollout?"
+        confirmDescription={`This will restart the rollout "${rollout.name}".`}
+        onConfirm={() => onAction("restart", () => restartRollout(namespace, name))}
+      />
+      {canRetry && (
+        <ActionButton
+          label="RETRY"
+          icon={RotateCw}
+          loading={actionLoading === "retry"}
+          disabled={actionLoading !== null}
+          confirmTitle="Retry Rollout?"
+          confirmDescription={`This will retry the current step of rollout "${rollout.name}".`}
+          onConfirm={() => onAction("retry", () => retryRollout(namespace, name))}
+        />
+      )}
+      {canPause && (
+        <ActionButton
+          label="PAUSE"
+          icon={PauseCircle}
+          loading={actionLoading === "pause"}
+          disabled={actionLoading !== null}
+          confirmTitle="Pause Rollout?"
+          confirmDescription={`This will pause the rollout "${rollout.name}".`}
+          onConfirm={() => onAction("pause", () => pauseRollout(namespace, name))}
+        />
+      )}
+      {canResume && (
+        <ActionButton
+          label="RESUME"
+          icon={PlayCircle}
+          loading={actionLoading === "resume"}
+          disabled={actionLoading !== null}
+          confirmTitle="Resume Rollout?"
+          confirmDescription={`This will resume the rollout "${rollout.name}".`}
+          onConfirm={() => onAction("resume", () => resumeRollout(namespace, name))}
+        />
+      )}
+      {canDisable && (
+        <ActionButton
+          label="DISABLE"
+          icon={XCircle}
+          loading={actionLoading === "disable"}
+          disabled={actionLoading !== null}
+          confirmTitle="Disable Rollout?"
+          confirmDescription={`This will disable the rollout "${rollout.name}".`}
+          onConfirm={() => onAction("disable", () => disableRollout(namespace, name))}
+          variant="destructive"
+        />
+      )}
+      {canEnable && (
+        <ActionButton
+          label="ENABLE"
+          icon={PlayCircle}
+          loading={actionLoading === "enable"}
+          disabled={actionLoading !== null}
+          confirmTitle="Enable Rollout?"
+          confirmDescription={`This will enable the rollout "${rollout.name}".`}
+          onConfirm={() => onAction("enable", () => enableRollout(namespace, name))}
+        />
+      )}
+      {canPromote && (
+        <ActionButton
+          label="PROMOTE"
+          icon={ArrowUpCircle}
+          loading={actionLoading === "promote"}
+          disabled={actionLoading !== null}
+          confirmTitle="Promote Rollout?"
+          confirmDescription={`This will promote rollout "${rollout.name}" to the next step.`}
+          onConfirm={() => onAction("promote", () => promoteRollout(namespace, name))}
+        />
+      )}
+      {canApprove && (
+        <ActionButton
+          label="PROMOTE-FULL"
+          icon={ArrowUpCircle}
+          loading={actionLoading === "approve"}
+          disabled={actionLoading !== null}
+          confirmTitle="Promote Rollout?"
+          confirmDescription={`This will fully promote the rollout "${rollout.name}".`}
+          onConfirm={() => onAction("approve", () => approveRollout(namespace, name))}
+        />
+      )}
+      {config.rolloutAnalysisEnabled && (
+        <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={onOpenAnalysis}>
+          <BarChart3 className="h-3.5 w-3.5" />
+          ANALYSIS
+        </Button>
+      )}
+    </>
+  )
+}
+
+function Kv({ label, children }: Readonly<{ label: string; children: React.ReactNode }>) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-xs text-muted-foreground">{label}</span>

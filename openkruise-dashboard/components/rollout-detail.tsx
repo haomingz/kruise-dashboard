@@ -23,10 +23,10 @@ function getStepCircleStyle(isCurrentStep: boolean, isCompleted: boolean): strin
     return 'bg-gray-300 text-gray-600'
 }
 
-function StepCard({ step, index, currentStep }: Readonly<{ step: RolloutStep; index: number; currentStep: number }>) {
-    const isCurrentStep = index === currentStep
-    const isCompleted = index < currentStep
-    const isPending = index > currentStep
+function StepCard({ step, index, currentStepIndex }: Readonly<{ step: RolloutStep; index: number; currentStepIndex: number }>) {
+    const isCurrentStep = index === currentStepIndex
+    const isCompleted = index < currentStepIndex
+    const isPending = index > currentStepIndex
 
     return (
         <div className={`flex items-center gap-4 p-4 rounded-lg border ${getStepBorderStyle(isCurrentStep, isCompleted)}`}>
@@ -66,7 +66,7 @@ export function RolloutDetail() {
 
     const rollout = useMemo(() => {
         if (!rawRolloutData) return null
-        return transformRolloutDetail(rawRolloutData as Record<string, unknown>)
+        return transformRolloutDetail(rawRolloutData)
     }, [rawRolloutData])
 
     const error = fetchError ? 'Failed to fetch rollout data' : null
@@ -261,7 +261,7 @@ export function RolloutDetail() {
                                         key={`step-${step.traffic ?? ''}-${step.replicas ?? ''}-${index}`}
                                         step={step}
                                         index={index}
-                                        currentStep={rollout.currentStep}
+                                        currentStepIndex={rollout.currentStepIndex}
                                     />
                                 ))}
                             </div>

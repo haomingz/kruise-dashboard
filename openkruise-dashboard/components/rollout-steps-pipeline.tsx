@@ -65,14 +65,15 @@ function getStepDetails(step: RolloutStep, type: string): string | null {
 
 interface StepsPipelineProps {
   steps: RolloutStep[]
-  currentStep: number
+  /** 0-based array index of the current step (for highlighting) */
+  currentStepIndex: number
   isCompleted: boolean
   phase: string
 }
 
 export function RolloutStepsPipeline({
   steps,
-  currentStep,
+  currentStepIndex,
   isCompleted,
   phase,
 }: Readonly<StepsPipelineProps>) {
@@ -90,9 +91,9 @@ export function RolloutStepsPipeline({
     <div className="relative space-y-0">
       {steps.map((step, index) => {
         const key = `step-${index}`
-        const isStepCompleted = isCompleted || index < currentStep
-        const isCurrent = !isCompleted && index === currentStep
-        const isPending = !isCompleted && index > currentStep
+        const isStepCompleted = isCompleted || index < currentStepIndex
+        const isCurrent = !isCompleted && index === currentStepIndex
+        const isPending = !isCompleted && index > currentStepIndex
         const isLast = index === steps.length - 1
         const { type, label } = getStepTypeLabel(step)
         const Icon = getStepIcon(type)
@@ -120,7 +121,6 @@ export function RolloutStepsPipeline({
             bgColor = "bg-blue-50"
             dotColor = "bg-blue-500 text-white"
           }
-          lineColor = "bg-gray-200"
         }
 
         return (

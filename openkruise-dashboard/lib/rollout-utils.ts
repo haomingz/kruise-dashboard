@@ -39,7 +39,10 @@ export interface TransformedRollout {
   strategy: string
   status: string
   phase: string
+  /** Raw step index from API (Kruise 1-based, Argo 0-based) */
   currentStep: number
+  /** 0-based array index for Steps pipeline (which step to highlight as current) */
+  currentStepIndex: number
   totalSteps: number
   canaryReplicas: number
   stableReplicas: number
@@ -77,11 +80,27 @@ function parseTrafficPercent(value: string | number): number {
 }
 
 /**
- * Calculate display step number from total and current index.
+ * Kruise Rollout uses 1-based currentStepIndex (1 = first step); Argo uses 0-based.
+ * Detect by apiVersion so we show "step 1/3" correctly for Kruise.
  */
-function calcDisplayStep(totalSteps: number, stepIndex: number, isCompleted: boolean): number {
+function isKruiseRollout(rollout: Record<string, unknown>): boolean {
+  const apiVersion = (rollout.apiVersion as string) || ''
+  return apiVersion.includes('rollouts.kruise.io')
+}
+
+/**
+ * Calculate display step number from total and current index.
+ * @param stepIndex1Based - true for Kruise (currentStepIndex 1 = first step), false for Argo (0-based).
+ */
+function calcDisplayStep(
+  totalSteps: number,
+  stepIndex: number,
+  isCompleted: boolean,
+  stepIndex1Based: boolean,
+): number {
   if (totalSteps === 0) return 0
-  return isCompleted ? totalSteps : stepIndex + 1
+  if (isCompleted) return totalSteps
+  return stepIndex1Based ? stepIndex : stepIndex + 1
 }
 
 /**
@@ -94,22 +113,26 @@ function calcProgressPct(totalSteps: number, displayStep: number): number {
 
 /**
  * Extract step progress from a strategy block and its status.
+ * @param stepIndex1Based - true for Kruise (currentStepIndex 1 = first step).
  */
 function extractStepProgress(
   strategyBlock: Record<string, unknown>,
   statusBlock: Record<string, unknown>,
   isCanary: boolean,
+  stepIndex1Based: boolean,
 ): RolloutStepProgress {
   const steps = (strategyBlock.steps as RolloutStep[]) || []
   const totalSteps = steps.length
   const stepIndex = (statusBlock.currentStepIndex as number) || 0
   const isCompleted = totalSteps > 0 && stepIndex >= totalSteps
-  const displayStep = calcDisplayStep(totalSteps, stepIndex, isCompleted)
+  const displayStep = calcDisplayStep(totalSteps, stepIndex, isCompleted, stepIndex1Based)
   const progressPct = calcProgressPct(totalSteps, displayStep)
 
+  // Current step: Kruise uses 1-based index so steps[stepIndex - 1]; Argo uses steps[stepIndex].
+  const currentStepArrayIndex = stepIndex1Based ? stepIndex - 1 : stepIndex
   let trafficPercent = 0
-  if (totalSteps > 0 && stepIndex < steps.length) {
-    const currentStep = steps[stepIndex]
+  if (totalSteps > 0 && currentStepArrayIndex >= 0 && currentStepArrayIndex < steps.length) {
+    const currentStep = steps[currentStepArrayIndex]
     if (currentStep?.traffic) {
       trafficPercent = parseTrafficPercent(currentStep.traffic)
     }
@@ -134,6 +157,7 @@ function resolveStrategy(specStrategy: Record<string, unknown> | undefined): str
  * Compute step progress for a rollout's spec and status.
  */
 function computeProgress(
+  rollout: Record<string, unknown>,
   specStrategy: Record<string, unknown> | undefined,
   status: Record<string, unknown>,
 ): RolloutStepProgress {
@@ -141,15 +165,16 @@ function computeProgress(
     steps: [], totalSteps: 0, stepIndex: 0,
     isCompleted: false, displayStep: 0, progressPct: 0, trafficPercent: 0,
   }
+  const stepIndex1Based = isKruiseRollout(rollout)
 
   if (specStrategy?.canary) {
     const canaryStatus = (status.canaryStatus as Record<string, unknown>) || {}
-    return extractStepProgress(specStrategy.canary as Record<string, unknown>, canaryStatus, true)
+    return extractStepProgress(specStrategy.canary as Record<string, unknown>, canaryStatus, true, stepIndex1Based)
   }
 
   if (specStrategy?.blueGreen) {
     const blueGreenStatus = (status.blueGreenStatus as Record<string, unknown>) || {}
-    return extractStepProgress(specStrategy.blueGreen as Record<string, unknown>, blueGreenStatus, false)
+    return extractStepProgress(specStrategy.blueGreen as Record<string, unknown>, blueGreenStatus, false, stepIndex1Based)
   }
 
   return empty
@@ -166,20 +191,35 @@ export function transformRollout(rollout: Record<string, unknown>): TransformedR
   const specStrategy = spec.strategy as Record<string, unknown> | undefined
 
   const strategy = resolveStrategy(specStrategy)
-  const progress = computeProgress(specStrategy, status)
+  const progress = computeProgress(rollout, specStrategy, status)
 
   const workloadRefObj = (spec.workloadRef as Record<string, unknown>) || {}
-  const specPaused = spec.paused as boolean | undefined
+  // Kruise: spec.strategy.paused; Argo: spec.paused
+  const specPaused =
+    (spec.paused as boolean | undefined) ??
+    (specStrategy?.paused as boolean | undefined) ??
+    false
   const specDisabled = spec.disabled as boolean | undefined
+
+  // Kruise: when current step is paused, show as Paused (status.phase stays Progressing)
+  const rawPhase = (status.phase as string) || 'Unknown'
+  const stepState = canaryStatus.currentStepState as string | undefined
+  const phase =
+    rawPhase === 'Progressing' && stepState === 'StepPaused' ? 'Paused' : rawPhase
+
+  const stepIndex1Based = isKruiseRollout(rollout)
+  const currentStepIndex =
+    stepIndex1Based ? Math.max(0, progress.stepIndex - 1) : progress.stepIndex
 
   return {
     name: (metadata.name as string) || 'Unknown',
     namespace: (metadata.namespace as string) || 'default',
     labels: (metadata.labels as Record<string, string>) || {},
     strategy,
-    status: (status.phase as string) || 'Unknown',
-    phase: (status.phase as string) || 'Unknown',
+    status: phase,
+    phase,
     currentStep: progress.stepIndex,
+    currentStepIndex,
     totalSteps: progress.totalSteps,
     canaryReplicas: (canaryStatus.canaryReplicas as number) || 0,
     stableReplicas: (canaryStatus.stableReplicas as number) || 0,
@@ -206,7 +246,7 @@ export function transformRolloutDetail(rolloutData: Record<string, unknown>): Tr
   const status = (rolloutData.status as Record<string, unknown>) || {}
   const specStrategy = spec.strategy as Record<string, unknown> | undefined
 
-  const progress = computeProgress(specStrategy, status)
+  const progress = computeProgress(rolloutData, specStrategy, status)
 
   const canaryStatus = (status.canaryStatus as Record<string, unknown>) || {}
   const stableRevisionHash = (canaryStatus.stableRevision as string) || undefined
@@ -273,7 +313,7 @@ export function getStepTypeLabel(step: RolloutStep): { type: string; label: stri
   }
   if (step.pause) {
     const pause = step.pause
-    if (typeof pause === 'object' && pause !== null && pause.duration !== undefined) {
+    if (typeof pause === 'object' && pause?.duration !== undefined) {
       return { type: 'pause', label: `Pause: ${pause.duration}` }
     }
     return { type: 'pause', label: 'Pause' }

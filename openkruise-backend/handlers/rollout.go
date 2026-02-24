@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 )
 
@@ -42,6 +43,8 @@ const (
 	errorCodeRolloutNotPromotable    = "ROLLOUT_NOT_PROMOTABLE"
 
 	rolloutHeartbeatInterval = 20 * time.Second
+
+	msgRolloutApprovedSuccess = "Rollout approved successfully"
 )
 
 var rolloutGVR = schema.GroupVersionResource{
@@ -164,7 +167,8 @@ func handleRolloutWatchObjectEvent(
 		return true
 	}
 
-	_, _, rv := extractRolloutWatchMeta(rolloutObj)
+	enriched := enrichRolloutWithStableReplicas(rolloutObj, namespace)
+	_, _, rv := extractRolloutWatchMeta(enriched)
 	if rv != "" {
 		listOpts.ResourceVersion = rv
 	}
@@ -172,7 +176,7 @@ func handleRolloutWatchObjectEvent(
 	return writeRolloutSSEEvent(
 		c,
 		eventType,
-		buildRolloutWatchPayload(rolloutObj, namespace, name, listOpts.ResourceVersion, ""),
+		buildRolloutWatchPayload(enriched, namespace, name, listOpts.ResourceVersion, ""),
 	)
 }
 
@@ -243,7 +247,8 @@ func streamRolloutWatch(c *gin.Context, namespace, name string) {
 	flusher.Flush()
 
 	for i := range initialList.Items {
-		if !writeRolloutSSEEvent(c, watchEventSnapshot, buildRolloutWatchPayload(initialList.Items[i].Object, namespace, name, initialList.GetResourceVersion(), "")) {
+		enriched := enrichRolloutWithStableReplicas(initialList.Items[i].Object, namespace)
+		if !writeRolloutSSEEvent(c, watchEventSnapshot, buildRolloutWatchPayload(enriched, namespace, name, initialList.GetResourceVersion(), "")) {
 			return
 		}
 	}
@@ -288,7 +293,7 @@ func WatchRollout(c *gin.Context) {
 	streamRolloutWatch(c, namespace, name)
 }
 
-// GetRollout returns the complete rollout object
+// GetRollout returns the complete rollout object (enriched with stableReplicas when missing).
 func GetRollout(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
@@ -303,7 +308,8 @@ func GetRollout(c *gin.Context) {
 		response.InternalError(c, err)
 		return
 	}
-	response.Success(c, rollout.Object)
+	enriched := enrichRolloutWithStableReplicas(rollout.Object, namespace)
+	response.Success(c, enriched)
 }
 
 // GetRolloutStatus returns the current status of a rollout
@@ -352,7 +358,7 @@ func GetRolloutHistory(c *gin.Context) {
 	response.Success(c, history)
 }
 
-// PauseRollout sets the .spec.paused field to true
+// PauseRollout sets the .spec.strategy.paused field to true (Kruise Rollout API).
 func PauseRollout(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
@@ -367,7 +373,7 @@ func PauseRollout(c *gin.Context) {
 		response.InternalError(c, err)
 		return
 	}
-	if err := unstructured.SetNestedField(rollout.Object, true, "spec", "paused"); err != nil {
+	if err := unstructured.SetNestedField(rollout.Object, true, "spec", "strategy", "paused"); err != nil {
 		logger.Log.Error("Failed to set paused field",
 			zap.String("namespace", namespace),
 			zap.String("name", name),
@@ -393,7 +399,7 @@ func PauseRollout(c *gin.Context) {
 	response.Success(c, gin.H{"message": "Rollout paused successfully"})
 }
 
-// ResumeRollout resumes rollout execution by setting .spec.paused=false.
+// ResumeRollout resumes rollout execution by setting .spec.strategy.paused=false (Kruise Rollout API).
 func ResumeRollout(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
@@ -408,7 +414,7 @@ func ResumeRollout(c *gin.Context) {
 		response.InternalError(c, err)
 		return
 	}
-	if err := unstructured.SetNestedField(rollout.Object, false, "spec", "paused"); err != nil {
+	if err := unstructured.SetNestedField(rollout.Object, false, "spec", "strategy", "paused"); err != nil {
 		logger.Log.Error("Failed to unset paused field",
 			zap.String("namespace", namespace),
 			zap.String("name", name),
@@ -521,7 +527,9 @@ func UndoRollout(c *gin.Context) {
 	response.Error(c, http.StatusNotImplemented, "Undo not implemented. Use CLI for advanced operations.", nil, "NOT_IMPLEMENTED")
 }
 
-// RestartRollout adds a restart annotation
+// RestartRollout adds a restart annotation on the Rollout.
+// Note: In kruise-tools, "kubectl kruise rollout restart" operates on the workload (Deployment/CloneSet), not the Rollout CR.
+// This handler sets kruise.io/restart on the Rollout; behavior depends on whether the rollouts controller honors it.
 func RestartRollout(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
@@ -567,7 +575,9 @@ func RestartRollout(c *gin.Context) {
 	response.Success(c, gin.H{"message": "Rollout restarted successfully"})
 }
 
-// ApproveRollout adds an approval annotation
+// ApproveRollout approves a rollout (advance to next step or full approve).
+// For Kruise Rollouts: same as kubectl-kruise rollout approve — patch status subresource to set currentStepState to StepReady.
+// For others: set kruise.io/approved annotation.
 func ApproveRollout(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
@@ -580,6 +590,37 @@ func ApproveRollout(c *gin.Context) {
 			zap.Error(err),
 		)
 		response.InternalError(c, err)
+		return
+	}
+	if isKruiseRolloutObject(rollout.Object) {
+		canaryState, _, _ := unstructured.NestedString(rollout.Object, "status", "canaryStatus", "currentStepState")
+		blueGreenState, _, _ := unstructured.NestedString(rollout.Object, "status", "blueGreenStatus", "currentStepState")
+		const stepPaused = "StepPaused"
+		const stepReady = "StepReady"
+		var patchBytes []byte
+		if canaryState == stepPaused {
+			patchBytes = []byte(`{"status":{"canaryStatus":{"currentStepState":"StepReady"}}}`)
+		} else if blueGreenState == stepPaused {
+			patchBytes = []byte(`{"status":{"blueGreenStatus":{"currentStepState":"StepReady"}}}`)
+		} else {
+			response.Error(c, http.StatusConflict, "Rollout is not in StepPaused state, cannot approve", nil, errorCodeRolloutNotPromotable)
+			return
+		}
+		_, err = GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Patch(context.TODO(), name, types.MergePatchType, patchBytes, metav1.PatchOptions{}, "status")
+		if err != nil {
+			logger.Log.Error("Failed to patch rollout status for approval",
+				zap.String("namespace", namespace),
+				zap.String("name", name),
+				zap.Error(err),
+			)
+			response.InternalError(c, err)
+			return
+		}
+		logger.Log.Info(msgRolloutApprovedSuccess,
+			zap.String("namespace", namespace),
+			zap.String("name", name),
+		)
+		response.Success(c, gin.H{"message": msgRolloutApprovedSuccess})
 		return
 	}
 	annotations, found, _ := unstructured.NestedStringMap(rollout.Object, "metadata", "annotations")
@@ -606,20 +647,29 @@ func ApproveRollout(c *gin.Context) {
 		response.InternalError(c, err)
 		return
 	}
-	logger.Log.Info("Rollout approved successfully",
+	logger.Log.Info(msgRolloutApprovedSuccess,
 		zap.String("namespace", namespace),
 		zap.String("name", name),
 	)
-	response.Success(c, gin.H{"message": "Rollout approved successfully"})
+	response.Success(c, gin.H{"message": msgRolloutApprovedSuccess})
 }
 
 func isRolloutPromotable(rollout *unstructured.Unstructured) bool {
 	phase, _, _ := unstructured.NestedString(rollout.Object, "status", "phase")
-	specPaused, _, _ := unstructured.NestedBool(rollout.Object, "spec", "paused")
+	specPaused, _, _ := unstructured.NestedBool(rollout.Object, "spec", "strategy", "paused")
 	return specPaused || phase == "Paused" || phase == "Progressing"
 }
 
+// isKruiseRollout returns true if the rollout is from Kruise (rollouts.kruise.io).
+func isKruiseRolloutObject(obj map[string]interface{}) bool {
+	apiVersion, _, _ := unstructured.NestedString(obj, "apiVersion")
+	return strings.Contains(apiVersion, "rollouts.kruise.io")
+}
+
 // PromoteRollout promotes a rollout by continuing from the current step (non-full promote).
+// For Kruise Rollouts, "promote" = approve: patch status subresource to set currentStepState to StepReady
+// (same as kubectl-kruise rollout approve, see https://github.com/openkruise/kruise-tools).
+// For Argo Rollouts, set spec.strategy.paused=false and kruise.io/promote annotation.
 func PromoteRollout(c *gin.Context) {
 	namespace := c.Param("namespace")
 	name := c.Param("name")
@@ -640,7 +690,41 @@ func PromoteRollout(c *gin.Context) {
 		return
 	}
 
-	if err := unstructured.SetNestedField(rollout.Object, false, "spec", "paused"); err != nil {
+	if isKruiseRolloutObject(rollout.Object) {
+		// Kruise: approve = patch status subresource: currentStepState StepPaused -> StepReady (kruise-tools rollout_approve.go + objectapprover.go)
+		canaryState, _, _ := unstructured.NestedString(rollout.Object, "status", "canaryStatus", "currentStepState")
+		blueGreenState, _, _ := unstructured.NestedString(rollout.Object, "status", "blueGreenStatus", "currentStepState")
+		const stepPaused = "StepPaused"
+		const stepReady = "StepReady"
+		var patchBytes []byte
+		if canaryState == stepPaused {
+			patchBytes = []byte(`{"status":{"canaryStatus":{"currentStepState":"StepReady"}}}`)
+		} else if blueGreenState == stepPaused {
+			patchBytes = []byte(`{"status":{"blueGreenStatus":{"currentStepState":"StepReady"}}}`)
+		} else {
+			response.Error(c, http.StatusConflict, "Rollout is not in StepPaused state, cannot approve", nil, errorCodeRolloutNotPromotable)
+			return
+		}
+		_, err = GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Patch(context.TODO(), name, types.MergePatchType, patchBytes, metav1.PatchOptions{}, "status")
+		if err != nil {
+			logger.Log.Error("Failed to patch rollout status for approve",
+				zap.String("namespace", namespace),
+				zap.String("name", name),
+				zap.Error(err),
+			)
+			response.InternalError(c, err)
+			return
+		}
+		response.Success(c, gin.H{"message": "Rollout promoted to next step"})
+		return
+	}
+
+	// Argo or other: unpause and set promote annotation
+	annotations, found, _ := unstructured.NestedStringMap(rollout.Object, "metadata", "annotations")
+	if !found {
+		annotations = map[string]string{}
+	}
+	if err := unstructured.SetNestedField(rollout.Object, false, "spec", "strategy", "paused"); err != nil {
 		logger.Log.Error("Failed to unset paused field for promote",
 			zap.String("namespace", namespace),
 			zap.String("name", name),
@@ -648,11 +732,6 @@ func PromoteRollout(c *gin.Context) {
 		)
 		response.InternalError(c, err)
 		return
-	}
-
-	annotations, found, _ := unstructured.NestedStringMap(rollout.Object, "metadata", "annotations")
-	if !found {
-		annotations = map[string]string{}
 	}
 	annotations["kruise.io/promote"] = time.Now().UTC().Format(time.RFC3339Nano)
 	if err := unstructured.SetNestedStringMap(rollout.Object, annotations, "metadata", "annotations"); err != nil {
@@ -664,7 +743,6 @@ func PromoteRollout(c *gin.Context) {
 		response.InternalError(c, err)
 		return
 	}
-
 	if _, err = GetDynamicClient().Resource(rolloutGVR).Namespace(namespace).Update(context.TODO(), rollout, metav1.UpdateOptions{}); err != nil {
 		logger.Log.Error("Failed to update rollout for promote",
 			zap.String("namespace", namespace),
@@ -674,7 +752,6 @@ func PromoteRollout(c *gin.Context) {
 		response.InternalError(c, err)
 		return
 	}
-
 	response.Success(c, gin.H{"message": "Rollout promoted to next step"})
 }
 
@@ -1152,6 +1229,7 @@ func toDeploymentRevisionMap(
 	podsByRS map[string][]interface{},
 	stableRevision string,
 	canaryRevision string,
+	rolloutCompleted bool,
 ) map[string]interface{} {
 	rsName, _, _ := unstructured.NestedString(rs.Object, "metadata", "name")
 	annotations, _, _ := unstructured.NestedStringMap(rs.Object, "metadata", "annotations")
@@ -1161,8 +1239,15 @@ func toDeploymentRevisionMap(
 
 	replicas, _, _ := unstructured.NestedInt64(rs.Object, "spec", "replicas")
 	readyReplicas, _, _ := unstructured.NestedInt64(rs.Object, "status", "readyReplicas")
-	isStable := podTemplateHash != "" && podTemplateHash == stableRevision
-	isCanary := podTemplateHash != "" && podTemplateHash == canaryRevision
+	var isStable, isCanary bool
+	if rolloutCompleted {
+		// After completion, the revision that was canary is now the live/stable one; old stable is just "old".
+		isStable = podTemplateHash != "" && podTemplateHash == canaryRevision
+		isCanary = false
+	} else {
+		isStable = podTemplateHash != "" && podTemplateHash == stableRevision
+		isCanary = podTemplateHash != "" && podTemplateHash == canaryRevision
+	}
 
 	return map[string]interface{}{
 		"name":            rsName,
@@ -1201,7 +1286,7 @@ func sortDeploymentRevisions(revisions []map[string]interface{}) {
 }
 
 // buildRevisionsForDeployment lists ReplicaSets for a Deployment and groups pods by RS.
-func buildRevisionsForDeployment(namespace string, workload *unstructured.Unstructured, pods []unstructured.Unstructured, stableRevision, canaryRevision string) []map[string]interface{} {
+func buildRevisionsForDeployment(namespace string, workload *unstructured.Unstructured, pods []unstructured.Unstructured, stableRevision, canaryRevision string, rolloutCompleted bool) []map[string]interface{} {
 	labelSelector := extractLabelSelector(workload.Object)
 	if labelSelector == "" {
 		return nil
@@ -1218,15 +1303,36 @@ func buildRevisionsForDeployment(namespace string, workload *unstructured.Unstru
 
 	revisions := make([]map[string]interface{}, 0, len(matchedReplicaSets))
 	for _, rs := range matchedReplicaSets {
-		revisions = append(revisions, toDeploymentRevisionMap(rs, podsByRS, stableRevision, canaryRevision))
+		revisions = append(revisions, toDeploymentRevisionMap(rs, podsByRS, stableRevision, canaryRevision, rolloutCompleted))
 	}
 
 	sortDeploymentRevisions(revisions)
 	return revisions
 }
 
+func revisionRoleFromHash(hash, stableRevision, canaryRevision string, rolloutCompleted bool) (isStable, isCanary bool) {
+	if rolloutCompleted {
+		return hash == canaryRevision, false
+	}
+	return hash == stableRevision, hash == canaryRevision
+}
+
+func countReadyInPodList(podList []interface{}) int64 {
+	var n int64
+	for _, raw := range podList {
+		podObj, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if isPodReady(podObj) {
+			n++
+		}
+	}
+	return n
+}
+
 // buildRevisionsForNonDeployment groups pods by controller-revision-hash for CloneSet/StatefulSet
-func buildRevisionsForNonDeployment(pods []unstructured.Unstructured, stableRevision, canaryRevision string) []map[string]interface{} {
+func buildRevisionsForNonDeployment(pods []unstructured.Unstructured, stableRevision, canaryRevision string, rolloutCompleted bool) []map[string]interface{} {
 	groups := map[string][]interface{}{}
 	for _, pod := range pods {
 		labels, _, _ := unstructured.NestedStringMap(pod.Object, "metadata", "labels")
@@ -1239,18 +1345,7 @@ func buildRevisionsForNonDeployment(pods []unstructured.Unstructured, stableRevi
 
 	revisions := make([]map[string]interface{}, 0, len(groups))
 	for hash, podList := range groups {
-		isStable := hash == stableRevision
-		isCanary := hash == canaryRevision
-		readyReplicas := int64(0)
-		for _, raw := range podList {
-			podObj, ok := raw.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if isPodReady(podObj) {
-				readyReplicas++
-			}
-		}
+		isStable, isCanary := revisionRoleFromHash(hash, stableRevision, canaryRevision, rolloutCompleted)
 		revisions = append(revisions, map[string]interface{}{
 			"name":            hash,
 			"revision":        "",
@@ -1258,7 +1353,7 @@ func buildRevisionsForNonDeployment(pods []unstructured.Unstructured, stableRevi
 			"isStable":        isStable,
 			"isCanary":        isCanary,
 			"replicas":        int64(len(podList)),
-			"readyReplicas":   readyReplicas,
+			"readyReplicas":   countReadyInPodList(podList),
 			"pods":            podList,
 			"containers":      nil,
 		})
@@ -1378,11 +1473,12 @@ func buildRevisionsForWorkload(
 	pods []unstructured.Unstructured,
 	stableRevision string,
 	canaryRevision string,
+	rolloutCompleted bool,
 ) []map[string]interface{} {
 	if strings.EqualFold(refKind, "deployment") {
-		return buildRevisionsForDeployment(namespace, workload, pods, stableRevision, canaryRevision)
+		return buildRevisionsForDeployment(namespace, workload, pods, stableRevision, canaryRevision, rolloutCompleted)
 	}
-	return buildRevisionsForNonDeployment(pods, stableRevision, canaryRevision)
+	return buildRevisionsForNonDeployment(pods, stableRevision, canaryRevision, rolloutCompleted)
 }
 
 // GetRolloutPods returns pods related to a rollout's referenced workload, with revision grouping
@@ -1423,8 +1519,14 @@ func GetRolloutPods(c *gin.Context) {
 		return
 	}
 
-	// 3. Extract stable/canary revision info from rollout status
+	// 3. Extract stable/canary revision info and whether rollout is completed
 	stableRevision, canaryRevision := extractCanaryRevisions(rollout)
+	phase, _, _ := unstructured.NestedString(rollout.Object, "status", "phase")
+	stepState, _, _ := unstructured.NestedString(rollout.Object, "status", "canaryStatus", "currentStepState")
+	if stepState == "" {
+		stepState, _, _ = unstructured.NestedString(rollout.Object, "status", "blueGreenStatus", "currentStepState")
+	}
+	rolloutCompleted := phase == "Healthy" || stepState == "Completed"
 
 	// 4. Resolve workload + list pods (with fallback on unresolved kind)
 	workload, pods, items, usedFallback, err := getWorkloadPodsWithFallback(namespace, refKind, refName)
@@ -1440,8 +1542,8 @@ func GetRolloutPods(c *gin.Context) {
 		return
 	}
 
-	// 5. Build revision groups
-	revisions := buildRevisionsForWorkload(refKind, namespace, workload, pods, stableRevision, canaryRevision)
+	// 5. Build revision groups (when completed, show current/live revision as stable, old as old)
+	revisions := buildRevisionsForWorkload(refKind, namespace, workload, pods, stableRevision, canaryRevision, rolloutCompleted)
 
 	// 6. Extract containers from workload
 	containers := extractContainers(workload.Object)
@@ -1474,8 +1576,8 @@ func RetryRollout(c *gin.Context) {
 		response.InternalError(c, err)
 		return
 	}
-	// Unpause the rollout
-	if err := unstructured.SetNestedField(rollout.Object, false, "spec", "paused"); err != nil {
+	// Unpause the rollout (Kruise: spec.strategy.paused)
+	if err := unstructured.SetNestedField(rollout.Object, false, "spec", "strategy", "paused"); err != nil {
 		logger.Log.Error("Failed to unset paused field for retry",
 			zap.String("namespace", namespace),
 			zap.String("name", name),
@@ -1516,6 +1618,87 @@ func RetryRollout(c *gin.Context) {
 	response.Success(c, gin.H{"message": "Rollout retried successfully"})
 }
 
+func enrichStableCanaryFromWorkload(obj map[string]interface{}, namespace string) (stable, canary int64, ok bool) {
+	spec, _, _ := unstructured.NestedMap(obj, "spec")
+	workloadRef, _, _ := unstructured.NestedMap(spec, "workloadRef")
+	if workloadRef == nil {
+		workloadRef, _, _ = unstructured.NestedMap(spec, "objectRef", "workloadRef")
+	}
+	if workloadRef == nil {
+		return 0, 0, false
+	}
+	kind, _ := workloadRef["kind"].(string)
+	name, _ := workloadRef["name"].(string)
+	if kind == "" || name == "" {
+		return 0, 0, false
+	}
+	gvr, _, err := resolveWorkloadRefGVR(kind)
+	if err != nil {
+		return 0, 0, false
+	}
+	workload, err := GetDynamicClient().Resource(gvr).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		return 0, 0, false
+	}
+	readyReplicas, _, _ := unstructured.NestedInt64(workload.Object, "status", "readyReplicas")
+	if readyReplicas < 0 {
+		readyReplicas, _, _ = unstructured.NestedInt64(workload.Object, "spec", "replicas")
+	}
+	if readyReplicas < 0 {
+		readyReplicas = 0
+	}
+	phase, _, _ := unstructured.NestedString(obj, "status", "phase")
+	canaryReplicas, _, _ := unstructured.NestedInt64(obj, "status", "canaryStatus", "canaryReplicas")
+	if phase == "Healthy" || phase == "Completed" {
+		return readyReplicas, 0, true
+	}
+	if readyReplicas >= canaryReplicas {
+		return readyReplicas - canaryReplicas, canaryReplicas, true
+	}
+	return 0, canaryReplicas, true
+}
+
+// enrichRolloutWithStableReplicas sets status.canaryStatus.stableReplicas (and canaryReplicas when needed) from the workload.
+// Returns a deep copy when enriching.
+func enrichRolloutWithStableReplicas(obj map[string]interface{}, namespace string) map[string]interface{} {
+	canaryStatus, found, _ := unstructured.NestedMap(obj, "status", "canaryStatus")
+	if !found || canaryStatus == nil {
+		return obj
+	}
+	stableReplicas, _, _ := unstructured.NestedInt64(obj, "status", "canaryStatus", "stableReplicas")
+	if stableReplicas > 0 {
+		return obj
+	}
+	stable, canary, ok := enrichStableCanaryFromWorkload(obj, namespace)
+	if !ok {
+		return obj
+	}
+	copied := deepCopyRolloutObject(obj)
+	if copied == nil {
+		return obj
+	}
+	if err := unstructured.SetNestedField(copied, stable, "status", "canaryStatus", "stableReplicas"); err != nil {
+		return obj
+	}
+	canaryReplicas, _, _ := unstructured.NestedInt64(obj, "status", "canaryStatus", "canaryReplicas")
+	if canary != canaryReplicas {
+		_ = unstructured.SetNestedField(copied, canary, "status", "canaryStatus", "canaryReplicas")
+	}
+	return copied
+}
+
+func deepCopyRolloutObject(obj map[string]interface{}) map[string]interface{} {
+	data, err := json.Marshal(obj)
+	if err != nil {
+		return nil
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
 // ListAllRollouts lists all rollouts in a namespace
 func ListAllRollouts(c *gin.Context) {
 	namespace := c.Param("namespace")
@@ -1526,7 +1709,8 @@ func ListAllRollouts(c *gin.Context) {
 	v1beta1List, err := GetDynamicClient().Resource(v1beta1GVR).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err == nil {
 		for _, item := range v1beta1List.Items {
-			allItems = append(allItems, item.Object)
+			enriched := enrichRolloutWithStableReplicas(item.Object, namespace)
+			allItems = append(allItems, enriched)
 		}
 	}
 
@@ -1575,12 +1759,14 @@ func ListActiveRollouts(c *gin.Context) {
 
 func ListDefaultRollouts(c *gin.Context) {
 	allItems := []interface{}{}
+	namespace := "default"
 
 	v1beta1GVR := rolloutGVRForVersion(rolloutAPIVersionV1beta1)
-	v1beta1List, err := GetDynamicClient().Resource(v1beta1GVR).Namespace("default").List(context.TODO(), metav1.ListOptions{})
+	v1beta1List, err := GetDynamicClient().Resource(v1beta1GVR).Namespace(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err == nil {
 		for _, item := range v1beta1List.Items {
-			allItems = append(allItems, item.Object)
+			enriched := enrichRolloutWithStableReplicas(item.Object, namespace)
+			allItems = append(allItems, enriched)
 		}
 	}
 
