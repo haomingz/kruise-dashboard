@@ -1,22 +1,34 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react"
 import {
   Activity,
   ArrowLeft,
+  Ban,
+  CheckCircle2,
+  ChevronDown,
+  CirclePause,
+  Code2,
+  Gauge,
   GitBranch,
   ListChecks,
   Loader2,
   Network,
   Radar,
+  Rocket,
   Route,
+  Waypoints,
 } from "lucide-react"
 import { MainNav } from "@/components/main-nav"
 import { NamespaceSelector } from "@/components/namespace-selector"
+import { RolloutFlowDiagram } from "@/components/rollout-flow-diagram"
+import { RolloutResourceTopologyDiagram } from "@/components/rollout-resource-topology-diagram"
+import { RolloutStateMachineReactFlow } from "@/components/rollout-state-machine-reactflow"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select,
@@ -25,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import type { RevisionInfo } from "@/api/rollout"
 import { useNamespace } from "@/hooks/use-namespace"
 import { useAllRollouts, useRollout, useRolloutPods } from "@/hooks/use-rollouts"
 import { useRolloutsWatch } from "@/hooks/use-rollouts-watch"
@@ -41,6 +54,12 @@ import {
   type K8sResourceOp,
   type SourceRef,
 } from "@/lib/rollout-explainer"
+import {
+  buildABTestDiagram,
+  buildCanaryDiagram,
+  buildEdgeCaseDiagram,
+  buildTriggerDiagram,
+} from "@/lib/rollout-explainer-diagram"
 import { transformRolloutDetail, transformRolloutList } from "@/lib/rollout-utils"
 import { config } from "@/lib/config"
 import { cn } from "@/lib/utils"
@@ -49,25 +68,152 @@ function rolloutKey(rollout: { namespace: string; name: string }): string {
   return `${rollout.namespace}/${rollout.name}`
 }
 
+type ExplainerTabValue = "canary" | "abtest" | "trigger" | "edge" | "live"
+
+function resolveTabValue(value: string | null | undefined): ExplainerTabValue {
+  if (value === "canary" || value === "abtest" || value === "trigger" || value === "edge" || value === "live") {
+    return value
+  }
+  return "canary"
+}
+
+function isPrimitive(value: unknown): value is string | number | boolean | null {
+  return value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+}
+
+function formatYamlScalar(value: string | number | boolean | null): string {
+  if (value === null) {
+    return "null"
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value)
+  }
+  if (value.length === 0) {
+    return '""'
+  }
+  if (/^[A-Za-z0-9_./:@%-]+$/.test(value)) {
+    return value
+  }
+  return JSON.stringify(value)
+}
+
+function toYaml(value: unknown, indent = 0): string {
+  const pad = " ".repeat(indent)
+
+  if (isPrimitive(value)) {
+    return `${pad}${formatYamlScalar(value)}`
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return `${pad}[]`
+    }
+    return value
+      .map((item) => {
+        if (isPrimitive(item)) {
+          return `${pad}- ${formatYamlScalar(item)}`
+        }
+        return `${pad}-\n${toYaml(item, indent + 2)}`
+      })
+      .join("\n")
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+    if (entries.length === 0) {
+      return `${pad}{}`
+    }
+    return entries
+      .map(([key, item]) => {
+        const normalizedKey = /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key)
+        if (isPrimitive(item)) {
+          return `${pad}${normalizedKey}: ${formatYamlScalar(item)}`
+        }
+        return `${pad}${normalizedKey}:\n${toYaml(item, indent + 2)}`
+      })
+      .join("\n")
+  }
+
+  return `${pad}${String(value)}`
+}
+
+function renderYamlLine(line: string): ReactNode {
+  if (line.trim().length === 0) {
+    return <span className="whitespace-pre text-slate-500"> </span>
+  }
+
+  if (line.trimStart().startsWith("#")) {
+    return <span className="whitespace-pre text-slate-500">{line}</span>
+  }
+
+  const keyMatch = line.match(/^(\s*(?:-\s+)?)("?[^":]+"?|[A-Za-z0-9_.\/-]+)(:\s*)(.*)$/)
+  if (!keyMatch) {
+    return <span className="whitespace-pre text-slate-200">{line}</span>
+  }
+
+  const [, prefix, key, colon, rawValue] = keyMatch
+  const value = rawValue ?? ""
+  let valueClass = "text-slate-200"
+  const normalized = value.trim()
+  if (normalized.length === 0) {
+    valueClass = "text-slate-500"
+  } else if (/^(true|false|null)$/i.test(normalized)) {
+    valueClass = "text-fuchsia-300"
+  } else if (/^-?\d+(\.\d+)?%?$/.test(normalized)) {
+    valueClass = "text-amber-300"
+  } else if (/^".*"$|^'.*'$/.test(normalized)) {
+    valueClass = "text-emerald-300"
+  }
+
+  return (
+    <span className="whitespace-pre">
+      <span className="text-slate-300">{prefix}</span>
+      <span className="text-cyan-300">{key}</span>
+      <span className="text-slate-400">{colon}</span>
+      <span className={valueClass}>{value}</span>
+    </span>
+  )
+}
+
+function YamlHighlightedBlock({ yaml }: Readonly<{ yaml: string }>) {
+  const lines = yaml.split("\n")
+  return (
+    <pre className="max-h-[380px] overflow-auto rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5">
+      <code className="block font-mono text-[10px] leading-4">
+        {lines.map((line, index) => (
+          <div key={`yaml-${index}`} className="min-h-4">
+            {renderYamlLine(line)}
+          </div>
+        ))}
+      </code>
+    </pre>
+  )
+}
+
 function OperationItem({ op }: Readonly<{ op: K8sResourceOp }>) {
   return (
-    <li className="rounded-md border bg-muted/20 p-2 text-xs sm:text-sm">
+    <li className="rounded-lg border border-slate-200 bg-slate-50/70 p-2.5 text-xs sm:text-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="outline">{op.resourceKind}</Badge>
-        <Badge variant="secondary">{op.operation}</Badge>
+        <Badge variant="outline" className="border-slate-300 bg-white text-slate-700">
+          {op.resourceKind}
+        </Badge>
+        <Badge variant="secondary" className="bg-slate-200 text-slate-800">
+          {op.operation}
+        </Badge>
       </div>
-      <p className="mt-1 text-muted-foreground">{op.description}</p>
+      <p className="mt-1.5 leading-relaxed text-slate-700">{op.description}</p>
       <div className="mt-2 space-y-1">
+        <p className="text-[11px] font-medium text-slate-600">字段路径</p>
         {op.fieldPaths.map((fieldPath) => (
-          <p key={`${op.resourceKind}-${op.operation}-${fieldPath}`} className="font-mono text-[11px] text-muted-foreground">
+          <p key={`${op.resourceKind}-${op.operation}-${fieldPath}`} className="font-mono text-[11px] text-slate-500">
             {fieldPath}
           </p>
         ))}
       </div>
       {op.details && op.details.length > 0 && (
-        <div className="mt-2 rounded-md bg-background/70 p-2">
+        <div className="mt-2 rounded-md border border-blue-100 bg-blue-50/70 p-2">
           {op.details.map((detail) => (
-            <p key={`${op.resourceKind}-${detail}`} className="text-[11px] text-muted-foreground">
+            <p key={`${op.resourceKind}-${detail}`} className="text-[11px] leading-relaxed text-slate-700">
               - {detail}
             </p>
           ))}
@@ -100,20 +246,40 @@ function FlowStepCard({
   active,
   index,
 }: Readonly<{ step: ExplainerStep; active: boolean; index: number }>) {
+  const stepIconMap: Record<ExplainerStep["stateKey"], ComponentType<{ className?: string }>> = {
+    "step-init": Waypoints,
+    "step-upgrade": Rocket,
+    "step-traffic-routing": Route,
+    "step-metrics-analysis": Gauge,
+    "step-paused": CirclePause,
+    "step-ready": CheckCircle2,
+    completed: CheckCircle2,
+    "global-paused": CirclePause,
+    disabled: Ban,
+  }
+  const Icon = stepIconMap[step.stateKey]
+
   return (
     <article
       className={cn(
-        "rounded-xl border p-3 sm:p-4",
-        active ? "border-blue-400 bg-blue-50/70" : "bg-card"
+        "rounded-xl border p-3 shadow-sm transition-colors sm:p-4",
+        active
+          ? "border-blue-400 bg-blue-50/70 ring-1 ring-blue-200"
+          : "border-slate-200 bg-white"
       )}
     >
       <div className="flex items-center gap-2">
-        <Badge variant={active ? "default" : "outline"}>#{index + 1}</Badge>
-        <h4 className="text-sm font-semibold sm:text-base">{step.title}</h4>
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-700">
+          <Icon className="h-4 w-4" />
+        </span>
+        <Badge variant={active ? "default" : "outline"} className="font-mono">
+          #{index + 1}
+        </Badge>
+        <h4 className="text-base font-semibold">{step.title}</h4>
       </div>
-      <p className="mt-2 text-xs text-muted-foreground sm:text-sm">{step.summary}</p>
+      <p className="mt-2 text-sm leading-relaxed text-slate-700">{step.summary}</p>
       <p className="mt-2 text-xs sm:text-sm">
-        <span className="font-medium">触发（Trigger）: </span>
+        <span className="font-semibold text-slate-700">触发（Trigger）: </span>
         {step.trigger}
       </p>
       <ul className="mt-2 space-y-2">
@@ -122,7 +288,7 @@ function FlowStepCard({
         ))}
       </ul>
       {step.notes.length > 0 && (
-        <div className="mt-2 rounded-md bg-muted/30 p-2 text-xs text-muted-foreground sm:text-sm">
+        <div className="mt-2 rounded-md border border-amber-100 bg-amber-50/70 p-2 text-xs text-slate-700 sm:text-sm">
           {step.notes.map((note) => (
             <p key={`${step.id}-${note}`}>- {note}</p>
           ))}
@@ -149,7 +315,7 @@ function FlowRail({
   return (
     <Card className="gap-3 py-4">
       <CardHeader className="px-4 pb-1">
-        <CardTitle className="text-base sm:text-lg">{title}</CardTitle>
+        <CardTitle className="text-lg font-semibold">{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 px-4">
@@ -158,27 +324,6 @@ function FlowRail({
         ))}
       </CardContent>
     </Card>
-  )
-}
-
-function TriggerOverview() {
-  const nodes = [
-    "用户变更 Workload / Rollout",
-    "Mutating Webhook patch Workload",
-    "Controller Watch 入队",
-    "Rollout Reconcile",
-    "执行 BatchRelease / TrafficRouting",
-  ]
-
-  return (
-    <div className="grid gap-2 md:grid-cols-5">
-      {nodes.map((node, index) => (
-        <div key={node} className="rounded-lg border bg-card p-3 text-xs sm:text-sm">
-          <div className="font-medium">{node}</div>
-          {index < nodes.length - 1 && <div className="mt-2 text-muted-foreground">→</div>}
-        </div>
-      ))}
-    </div>
   )
 }
 
@@ -193,7 +338,19 @@ export function RolloutExplainerPage() {
     )
   }, [rawList])
 
-  const [selectedKey, setSelectedKey] = useState("")
+  const [selectedKey, setSelectedKey] = useState(() => {
+    if (typeof window === "undefined") {
+      return ""
+    }
+    return new URLSearchParams(window.location.search).get("rollout") ?? ""
+  })
+  const [activeTab, setActiveTab] = useState<ExplainerTabValue>(() => {
+    if (typeof window === "undefined") {
+      return "canary"
+    }
+    return resolveTabValue(new URLSearchParams(window.location.search).get("tab"))
+  })
+  const [specExpanded, setSpecExpanded] = useState(false)
 
   const resolvedSelectedKey = useMemo(() => {
     const firstRollout = allRollouts.at(0)
@@ -211,6 +368,28 @@ export function RolloutExplainerPage() {
 
   const selectedNamespace = selectedRollout?.namespace ?? namespace
   const selectedName = selectedRollout?.name ?? ""
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+    const url = new URL(window.location.href)
+    if (activeTab === "canary") {
+      url.searchParams.delete("tab")
+    } else {
+      url.searchParams.set("tab", activeTab)
+    }
+    if (resolvedSelectedKey) {
+      url.searchParams.set("rollout", resolvedSelectedKey)
+    } else {
+      url.searchParams.delete("rollout")
+    }
+    const next = `${url.pathname}${url.search}${url.hash}`
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    if (next !== current) {
+      window.history.replaceState(window.history.state, "", next)
+    }
+  }, [activeTab, resolvedSelectedKey])
 
   const watchEnabled = config.rolloutWatchEnabled && selectedName.length > 0
   const watchState = useRolloutsWatch({
@@ -231,13 +410,79 @@ export function RolloutExplainerPage() {
     if (!rawDetail) return null
     return transformRolloutDetail(rawDetail)
   }, [rawDetail])
+  const rolloutSpecText = useMemo(() => {
+    if (!detail?.rawSpec) {
+      return ""
+    }
+    try {
+      return toYaml(detail.rawSpec)
+    } catch {
+      return ""
+    }
+  }, [detail])
 
   const explainerStrategy = useMemo(() => inferExplainerStrategy(detail), [detail])
   const liveSnapshot = useMemo(() => buildLiveRolloutSnapshot(detail), [detail])
   const currentMappedStep = useMemo(() => mapSnapshotToExplainerStep(liveSnapshot), [liveSnapshot])
   const liveStepCatalog = useMemo(() => getExplainerSteps(explainerStrategy), [explainerStrategy])
-  const revisions = (podsData?.revisions as unknown[]) || []
+  const revisions: RevisionInfo[] = podsData?.revisions ?? []
+  const livePodCounts = useMemo(() => {
+    let stablePods = 0
+    let canaryPods = 0
 
+    const currentRevisions = podsData?.revisions ?? []
+    currentRevisions.forEach((revision) => {
+      const pods = Array.isArray(revision.pods) ? revision.pods : []
+      const rawReplicas = revision.replicas
+      const replicas =
+        typeof rawReplicas === "number" && Number.isFinite(rawReplicas)
+          ? Math.max(0, Math.round(rawReplicas))
+          : pods.length
+      if (revision.isStable === true) {
+        stablePods += replicas
+      }
+      if (revision.isCanary === true) {
+        canaryPods += replicas
+      }
+    })
+
+    const totalPods = Array.isArray(podsData?.pods) ? podsData.pods.length : 0
+    if (stablePods === 0 && canaryPods === 0 && totalPods > 0) {
+      stablePods = totalPods
+    }
+
+    return {
+      stablePods,
+      canaryPods,
+    }
+  }, [podsData])
+  const desiredWorkloadReplicas = useMemo(() => {
+    const workloadRef = (podsData?.workloadRef as Record<string, unknown> | null | undefined) ?? undefined
+    if (!workloadRef) {
+      return undefined
+    }
+
+    const spec = (workloadRef.spec as Record<string, unknown> | undefined) ?? undefined
+    const status = (workloadRef.status as Record<string, unknown> | undefined) ?? undefined
+
+    const specReplicas =
+      typeof spec?.replicas === "number" && Number.isFinite(spec.replicas)
+        ? Math.max(0, Math.round(spec.replicas))
+        : undefined
+    if (specReplicas !== undefined) {
+      return specReplicas
+    }
+
+    if (typeof status?.replicas === "number" && Number.isFinite(status.replicas)) {
+      return Math.max(0, Math.round(status.replicas))
+    }
+
+    return undefined
+  }, [podsData])
+  const canaryDiagramModel = useMemo(() => buildCanaryDiagram(null), [])
+  const abTestDiagramModel = useMemo(() => buildABTestDiagram(null), [])
+  const triggerDiagramModel = useMemo(() => buildTriggerDiagram(), [])
+  const edgeCaseDiagramModel = useMemo(() => buildEdgeCaseDiagram(), [])
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-muted/40">
       <header className="shrink-0 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
@@ -264,7 +509,7 @@ export function RolloutExplainerPage() {
             </Button>
           </div>
 
-          <Tabs defaultValue="canary" className="min-w-0">
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(resolveTabValue(value))} className="min-w-0">
             <TabsList className="h-auto w-full flex-wrap justify-start">
               <TabsTrigger value="canary" className="flex-none gap-1.5">
                 <GitBranch className="h-4 w-4" />
@@ -289,15 +534,28 @@ export function RolloutExplainerPage() {
             </TabsList>
 
             <TabsContent value="canary" className="space-y-4">
+              <RolloutStateMachineReactFlow
+                model={canaryDiagramModel}
+                title="Canary State Machine Diagram"
+                description="按 openkruise/rollouts 控制器状态机展示 Canary 推进路径（静态源码解读，不绑定当前线上 Rollout）。"
+                sourceHint="核对源码：pkg/controller/rollout/rollout_canary.go + pkg/trafficrouting/manager.go"
+                staticMode
+              />
               <FlowRail
                 title="Canary 状态机"
                 description="StepInit -> StepUpgrade -> StepTrafficRouting -> StepMetricsAnalysis -> StepPaused -> StepReady -> Completed"
                 steps={canaryExplainerSteps}
-                activeStepId={currentMappedStep?.id}
               />
             </TabsContent>
 
             <TabsContent value="abtest" className="space-y-4">
+              <RolloutStateMachineReactFlow
+                model={abTestDiagramModel}
+                title="A/B TrafficRouting Diagram"
+                description="A/B 在 StepTrafficRouting 通过 matches（headers/query）分支导流（静态源码解读，不绑定当前线上 Rollout）。"
+                sourceHint="核对源码：pkg/controller/rollout/rollout_canary.go + pkg/trafficrouting/network/{gateway,ingress}"
+                staticMode
+              />
               <Card className="gap-3 py-4">
                 <CardHeader className="px-4 pb-1">
                   <CardTitle className="text-base sm:text-lg">A/B 关键要点</CardTitle>
@@ -315,20 +573,15 @@ export function RolloutExplainerPage() {
                 title="A/B 状态机"
                 description="与 Canary 同步推进，但 TrafficRouting 阶段优先体现匹配路由策略。"
                 steps={abTestExplainerSteps}
-                activeStepId={currentMappedStep?.id}
               />
             </TabsContent>
 
             <TabsContent value="trigger" className="space-y-4">
-              <Card className="gap-3 py-4">
-                <CardHeader className="px-4 pb-1">
-                  <CardTitle className="text-base sm:text-lg">Trigger 链路总览</CardTitle>
-                  <CardDescription>{"用户动作 -> Webhook -> Watch 入队 -> Reconcile -> rollout actions"}</CardDescription>
-                </CardHeader>
-                <CardContent className="px-4">
-                  <TriggerOverview />
-                </CardContent>
-              </Card>
+              <RolloutFlowDiagram
+                model={triggerDiagramModel}
+                title="Trigger Chain Diagram"
+                description="User Action -> Mutating Webhook -> Controller Watch -> Rollout Reconcile -> Controller Actions"
+              />
 
               <Card className="gap-3 py-4">
                 <CardHeader className="px-4 pb-1">
@@ -353,6 +606,11 @@ export function RolloutExplainerPage() {
             </TabsContent>
 
             <TabsContent value="edge" className="space-y-4">
+              <RolloutFlowDiagram
+                model={edgeCaseDiagramModel}
+                title="Edge Case Decision Diagram"
+                description="Rollback / Continuous Release / HPA Compatibility / Pause vs Disabled 的决策入口。"
+              />
               <Card className="gap-3 py-4">
                 <CardHeader className="px-4 pb-1">
                   <CardTitle className="text-base sm:text-lg">Edge Case 处理</CardTitle>
@@ -386,9 +644,9 @@ export function RolloutExplainerPage() {
                 </CardHeader>
                 <CardContent className="space-y-3 px-4">
                   {isListLoading ? (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <div role="status" aria-live="polite" className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      正在加载 Rollout 列表...
+                      正在加载 Rollout 列表…
                     </div>
                   ) : allRollouts.length === 0 ? (
                     <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
@@ -397,8 +655,8 @@ export function RolloutExplainerPage() {
                   ) : (
                     <>
                       <Select value={resolvedSelectedKey || undefined} onValueChange={setSelectedKey}>
-                        <SelectTrigger className="w-full sm:w-[420px]">
-                          <SelectValue placeholder="选择一个 Rollout" />
+                        <SelectTrigger id="live-rollout-select" aria-label="选择 Rollout 对象" className="w-full sm:w-[420px]">
+                          <SelectValue placeholder="选择一个 Rollout…" />
                         </SelectTrigger>
                         <SelectContent>
                           {allRollouts.map((rollout) => (
@@ -421,10 +679,62 @@ export function RolloutExplainerPage() {
                           <span className="text-muted-foreground">{watchState.lastError}</span>
                         )}
                       </div>
+
+                      {!!selectedName && (
+                        <>
+                          {!rolloutSpecText ? (
+                            <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                              当前没有可展示的 spec 数据。
+                            </div>
+                          ) : (
+                            <Collapsible open={specExpanded} onOpenChange={setSpecExpanded}>
+                              <div className="mb-1 mt-1 flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                  <Badge variant="outline" className="gap-1">
+                                    <Code2 className="h-3 w-3" />
+                                    Rollout Spec（YAML）
+                                  </Badge>
+                                  <Badge variant="outline">workload: {detail?.workloadRefKind}/{detail?.workloadRef}</Badge>
+                                  <Badge variant="outline">steps: {detail?.steps.length ?? 0}</Badge>
+                                  <Badge variant="outline">paused: {String(detail?.paused ?? false)}</Badge>
+                                  <Badge variant="outline">disabled: {String(detail?.disabled ?? false)}</Badge>
+                                </div>
+                                <CollapsibleTrigger asChild>
+                                  <Button variant="outline" size="sm" className="gap-1.5">
+                                    {specExpanded ? "收起 Spec YAML" : "展开 Spec YAML"}
+                                    <ChevronDown className={cn("h-4 w-4 transition-transform", specExpanded && "rotate-180")} />
+                                  </Button>
+                                </CollapsibleTrigger>
+                              </div>
+                              <CollapsibleContent>
+                                <YamlHighlightedBlock yaml={rolloutSpecText} />
+                              </CollapsibleContent>
+                            </Collapsible>
+                          )}
+                        </>
+                      )}
                     </>
                   )}
                 </CardContent>
               </Card>
+
+              <RolloutResourceTopologyDiagram
+                strategy={explainerStrategy}
+                detail={detail}
+                snapshot={liveSnapshot}
+                desiredWorkloadReplicas={desiredWorkloadReplicas}
+                actualStablePods={livePodCounts.stablePods}
+                actualCanaryPods={livePodCounts.canaryPods}
+                title="Live K8s 资源拓扑图"
+                description="针对当前选中 Rollout，按真实副本数与阶段状态展示资源关系。"
+                sourceHint={
+                  watchEnabled
+                    ? watchState.fallbackPolling
+                      ? "数据来源：Polling fallback"
+                      : "数据来源：Watch stream"
+                    : "数据来源：Polling"
+                }
+              />
 
               {selectedName && (
                 <>
@@ -439,8 +749,8 @@ export function RolloutExplainerPage() {
                         Step: {detail ? `${detail.displayStep}/${detail.totalSteps || "-"}` : "-"}
                       </div>
                       <div className="rounded-md border p-2">StepState: {liveSnapshot?.currentStepState || "-"}</div>
-                      <div className="rounded-md border p-2">Stable Replicas: {detail?.stableReplicas ?? "-"}</div>
-                      <div className="rounded-md border p-2">Canary Replicas: {detail?.canaryReplicas ?? "-"}</div>
+                      <div className="rounded-md border p-2">Stable Pods（实时）: {livePodCounts.stablePods}</div>
+                      <div className="rounded-md border p-2">Canary Pods（实时）: {livePodCounts.canaryPods}</div>
                       <div className="rounded-md border p-2">Stable Revision: {detail?.stableRevisionHash || "-"}</div>
                       <div className="rounded-md border p-2">Canary Revision: {detail?.canaryRevisionHash || "-"}</div>
                       <div className="rounded-md border p-2">Revision Groups: {revisions.length}</div>

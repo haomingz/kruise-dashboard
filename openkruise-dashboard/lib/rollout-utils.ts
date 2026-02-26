@@ -61,9 +61,12 @@ export interface TransformedRollout {
 export interface TransformedRolloutDetail extends TransformedRollout {
   steps: RolloutStep[]
   trafficRoutings?: TrafficRouting[]
+  enableExtraWorkloadForCanary?: boolean
   observedGeneration?: number
   creationTimestamp?: string
   uid?: string
+  rawSpec?: Record<string, unknown>
+  rawStatus?: Record<string, unknown>
   rawCanaryStatus?: Record<string, unknown>
   rawBlueGreenStatus?: Record<string, unknown>
   stableRevisionHash?: string
@@ -245,6 +248,8 @@ export function transformRolloutDetail(rolloutData: Record<string, unknown>): Tr
   const spec = (rolloutData.spec as Record<string, unknown>) || {}
   const status = (rolloutData.status as Record<string, unknown>) || {}
   const specStrategy = spec.strategy as Record<string, unknown> | undefined
+  const canaryStrategy = (specStrategy?.canary as Record<string, unknown>) || undefined
+  const blueGreenStrategy = (specStrategy?.blueGreen as Record<string, unknown>) || undefined
 
   const progress = computeProgress(rolloutData, specStrategy, status)
 
@@ -263,13 +268,21 @@ export function transformRolloutDetail(rolloutData: Record<string, unknown>): Tr
     }
   }
 
+  const canaryTrafficRoutings = (canaryStrategy?.trafficRoutings as TrafficRouting[]) || []
+  const blueGreenTrafficRoutings = (blueGreenStrategy?.trafficRoutings as TrafficRouting[]) || []
+  const trafficRoutings = canaryTrafficRoutings.length > 0 ? canaryTrafficRoutings : blueGreenTrafficRoutings
+  const enableExtraWorkloadForCanary = Boolean(canaryStrategy?.enableExtraWorkloadForCanary)
+
   return {
     ...base,
     steps: progress.steps,
-    trafficRoutings: ((specStrategy?.blueGreen as Record<string, unknown>)?.trafficRoutings as TrafficRouting[]) || [],
+    trafficRoutings,
+    enableExtraWorkloadForCanary,
     observedGeneration: status.observedGeneration as number,
     creationTimestamp: metadata.creationTimestamp as string,
     uid: metadata.uid as string,
+    rawSpec: spec,
+    rawStatus: status,
     rawCanaryStatus: (status.canaryStatus as Record<string, unknown>) || undefined,
     rawBlueGreenStatus: (status.blueGreenStatus as Record<string, unknown>) || undefined,
     stableRevisionHash,
