@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { RolloutResourceTopologyDiagram } from "./rollout-resource-topology-diagram"
+import { RolloutResourceTopologyDiagram, buildStageFlowGraph } from "./rollout-resource-topology-diagram"
 
 describe("RolloutResourceTopologyDiagram", () => {
   it("renders collapsed by default", () => {
@@ -181,6 +181,84 @@ describe("RolloutResourceTopologyDiagram", () => {
     fireEvent.click(screen.getByRole("button", { name: /展开资源图/i }))
 
     expect(screen.getAllByText(/header:x-user-group Exact beta/).length).toBeGreaterThan(0)
+  })
+
+  it("renders full untruncated match rule text in flow edge data", () => {
+    const stage = {
+      id: "match-stage",
+      order: 1,
+      title: "Step 1",
+      summary: "match flow",
+      status: "current",
+      canaryPods: 1,
+      stablePods: 9,
+      canaryTraffic: 0,
+      trafficMode: "match",
+      stepSpecSummary: "matches=1",
+      stableWorkloadReplicas: 9,
+      canaryWorkloadReplicas: 1,
+      useExtraCanaryDeployment: true,
+      canaryRouteEnabled: true,
+      canaryServiceEnabled: true,
+      canaryIngressEnabled: true,
+      matchRuleSummary: "header:x-very-long-release-channel Exact rollouts-canary-beta-users && query:release-group Exact north-america-users",
+      ops: [],
+    } satisfies Parameters<typeof buildStageFlowGraph>[0]["stage"]
+
+    const { edges } = buildStageFlowGraph({
+      stage,
+      stableServiceName: "Service/podinfo-svc",
+      canaryServiceName: "Service/podinfo-svc-canary",
+      stableRouteName: "Ingress/podinfo-ing",
+      canaryRouteName: "Ingress/podinfo-ing-canary",
+      routeTypeLabel: "Ingress",
+      stableWorkloadName: "Deployment/podinfo",
+      canaryWorkloadName: "Deployment/podinfo-canary",
+    })
+
+    const labels = edges.map((edge) => ((edge.data as { labelText?: string } | undefined)?.labelText ?? ""))
+    expect(
+      labels.some((text) =>
+        text.includes("header:x-very-long-release-channel Exact rollouts-canary-beta-users && query:release-group Exact north-america-users")
+      )
+    ).toBe(true)
+    expect(labels.some((text) => text.includes("rule-unmatched"))).toBe(true)
+  })
+
+  it("keeps no explicit route edge label in flow edge data", () => {
+    const stage = {
+      id: "no-route-stage",
+      order: 1,
+      title: "Step 1",
+      summary: "no explicit route",
+      status: "current",
+      canaryPods: 1,
+      stablePods: 9,
+      canaryTraffic: 0,
+      trafficMode: "weight",
+      stepSpecSummary: "traffic=0%",
+      stableWorkloadReplicas: 9,
+      canaryWorkloadReplicas: 0,
+      useExtraCanaryDeployment: false,
+      canaryRouteEnabled: false,
+      canaryServiceEnabled: false,
+      canaryIngressEnabled: false,
+      ops: [],
+    } satisfies Parameters<typeof buildStageFlowGraph>[0]["stage"]
+
+    const { edges } = buildStageFlowGraph({
+      stage,
+      stableServiceName: "Service/demo-svc",
+      canaryServiceName: "Service/demo-svc-canary",
+      stableRouteName: "Ingress/demo-ing",
+      canaryRouteName: "Ingress/demo-ing-canary",
+      routeTypeLabel: "Ingress",
+      stableWorkloadName: "Deployment/demo",
+      canaryWorkloadName: "Deployment/demo-canary",
+    })
+
+    const labels = edges.map((edge) => ((edge.data as { labelText?: string } | undefined)?.labelText ?? ""))
+    expect(labels.some((text) => text.includes("no explicit route"))).toBe(true)
   })
 
   it("uses canary trafficRoutings in abtest mode and shows canary service", () => {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { type ReactNode, useMemo, useState } from "react"
 import { ChevronDown } from "lucide-react"
 import {
   Background,
@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import type { DiagramModel, DiagramNodeStatus } from "@/lib/rollout-explainer-diagram"
+import type { DiagramModel, DiagramNode, DiagramNodeStatus } from "@/lib/rollout-explainer-diagram"
 import { cn } from "@/lib/utils"
 
 type StatusPalette = {
@@ -71,30 +71,137 @@ const STATUS_LABEL: Record<DiagramNodeStatus, string> = {
   disabled: "disabled",
 }
 
-const COMPACT_LABEL: Record<string, string> = {
-  StepInit: "Init",
-  StepUpgrade: "Upgrade",
-  StepTrafficRouting: "Traffic",
-  StepMetricsAnalysis: "Metrics",
-  StepPaused: "Pause",
-  StepReady: "Ready",
-  Completed: "Done",
-  "Global Pause": "Pause",
-  Disabled: "Disabled",
-  "Match Routing": "A/B Match",
-}
-
-const COMPACT_SUBLABEL_NODE_IDS = new Set(["ab-match-routing", "global-paused", "disabled"])
-
-function toCompactLabel(label: string): string {
-  return COMPACT_LABEL[label] ?? label
-}
+const COMPACT_SUBLABEL_NODE_IDS = new Set(["step-init", "step-upgrade", "step-traffic-routing", "step-metrics-analysis", "step-paused", "step-ready", "completed", "ab-match-routing", "global-paused", "disabled"])
 
 function truncateText(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
     return value
   }
   return `${value.slice(0, maxLength - 1)}…`
+}
+
+function resolveNodeDimensions(node: DiagramNode, isCompact: boolean): {
+  width: number
+  minHeight: number
+  borderRadius: number
+  padding: number
+  boxShadow: string
+} {
+  if (isCompact) {
+    return {
+      width: Math.min(node.width, 188),
+      minHeight: 76,
+      borderRadius: 12,
+      padding: 8,
+      boxShadow: "0 4px 10px rgba(15, 23, 42, 0.06)",
+    }
+  }
+  return {
+    width: node.width,
+    minHeight: node.height,
+    borderRadius: 14,
+    padding: 10,
+    boxShadow: "0 6px 16px rgba(15, 23, 42, 0.08)",
+  }
+}
+
+function renderStatusChip(status: DiagramNodeStatus, palette: StatusPalette, staticMode: boolean): ReactNode {
+  if (staticMode) {
+    return null
+  }
+  return (
+    <span
+      className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
+      style={{ backgroundColor: palette.chipBg, color: palette.chipText }}
+    >
+      {STATUS_LABEL[status]}
+    </span>
+  )
+}
+
+function renderNodeDetail(node: DiagramNode, isCompact: boolean, textColor: string): ReactNode {
+  if (isCompact) {
+    const compactDetailLine = node.detailLines?.at(0)
+    if (!compactDetailLine) {
+      return null
+    }
+    return (
+      <p className="font-mono text-[10px]" style={{ color: textColor, opacity: 0.85 }}>
+        {truncateText(compactDetailLine, 36)}
+      </p>
+    )
+  }
+
+  if (!node.detailLines || node.detailLines.length === 0) {
+    return null
+  }
+  return (
+    <div className="space-y-0.5">
+      {node.detailLines.map((line) => (
+        <p key={`${node.id}-${line}`} className="font-mono text-[10px]" style={{ color: textColor }}>
+          {line}
+        </p>
+      ))}
+    </div>
+  )
+}
+
+function buildFlowNodeLabel(node: DiagramNode, palette: StatusPalette, isCompact: boolean, staticMode: boolean): ReactNode {
+  const showSubLabel = !isCompact || COMPACT_SUBLABEL_NODE_IDS.has(node.id)
+  const subLabel = isCompact ? truncateText(node.subLabel, 32) : node.subLabel
+  const spacingClass = isCompact ? "space-y-0.5" : "space-y-1"
+  const titleSizeClass = isCompact ? "text-[11px]" : "text-xs"
+  const subLabelSizeClass = isCompact ? "text-[10px]" : "text-[11px]"
+  const tooltipText = [node.label, node.subLabel, ...(node.detailLines ?? [])].filter(Boolean).join(" | ")
+
+  return (
+    <div data-node-id={node.id} data-node-status={node.status} title={tooltipText} className={cn(spacingClass)}>
+      <div className="flex flex-wrap items-center justify-between gap-1">
+        <p className={cn("font-semibold", titleSizeClass)} style={{ color: palette.text }}>
+          {node.label}
+        </p>
+        {renderStatusChip(node.status, palette, staticMode)}
+      </div>
+      {showSubLabel ? (
+        <p className={cn(subLabelSizeClass)} style={{ color: palette.text, opacity: 0.9 }}>
+          {subLabel}
+        </p>
+      ) : null}
+      {renderNodeDetail(node, isCompact, palette.text)}
+    </div>
+  )
+}
+
+function buildFlowNode(node: DiagramNode, isCompact: boolean, staticMode: boolean): Node {
+  const palette = STATUS_STYLE[node.status]
+  const dims = resolveNodeDimensions(node, isCompact)
+  return {
+    id: node.id,
+    position: { x: node.x, y: node.y },
+    sourcePosition: Position.Right,
+    targetPosition: Position.Left,
+    draggable: false,
+    selectable: false,
+    style: {
+      width: dims.width,
+      minHeight: dims.minHeight,
+      borderRadius: dims.borderRadius,
+      border: `2px solid ${palette.nodeStroke}`,
+      background: `linear-gradient(180deg, #ffffff 0%, ${palette.nodeFill} 100%)`,
+      padding: dims.padding,
+      boxShadow: dims.boxShadow,
+    },
+    data: {
+      label: buildFlowNodeLabel(node, palette, isCompact, staticMode),
+    },
+  }
+}
+
+function resolveEdgeLabel(label: string | undefined, staticMode: boolean, isCompact: boolean): string | undefined {
+  if (staticMode || isCompact === false) {
+    return label
+  }
+  return undefined
 }
 
 export interface RolloutStateMachineReactFlowProps {
@@ -126,95 +233,41 @@ export function RolloutStateMachineReactFlow({
       ? "静态源码流程图，不表示线上 Rollout 实时状态。"
       : "阅读方式：绿色=已完成，蓝色=当前执行，橙色=等待/阻塞，灰色=待执行。")
 
-  const displayNodes = useMemo(
+  const displayNodes = useMemo<DiagramNode[]>(
     () =>
       model.nodes.map((node) =>
         staticMode
           ? {
               ...node,
-              status: "pending",
+              status: "pending" as DiagramNodeStatus,
             }
           : node
       ),
     [model.nodes, staticMode]
   )
 
-  const nodeStatusById = useMemo(() => new Map(displayNodes.map((node) => [node.id, node.status])), [displayNodes])
+  const nodeStatusById = useMemo(
+    () => new Map<string, DiagramNodeStatus>(displayNodes.map((node) => [node.id, node.status])),
+    [displayNodes]
+  )
   const fitViewOptions = useMemo(() => ({ padding: 0.12 }), [])
   const proOptions = useMemo(() => ({ hideAttribution: true }), [])
 
   const nodes = useMemo<Node[]>(
-    () =>
-      displayNodes.map((node) => {
-        const style = STATUS_STYLE[node.status]
-        const compactLabel = isCompact ? toCompactLabel(node.label) : node.label
-        const showSubLabel = !isCompact || COMPACT_SUBLABEL_NODE_IDS.has(node.id)
-        const compactSubLabel = isCompact ? truncateText(node.subLabel, 16) : node.subLabel
-        const tooltipText = [node.label, node.subLabel, ...(node.detailLines ?? [])].filter(Boolean).join(" | ")
-        return {
-          id: node.id,
-          position: { x: node.x, y: node.y },
-          sourcePosition: Position.Right,
-          targetPosition: Position.Left,
-          draggable: false,
-          selectable: false,
-          style: {
-            width: isCompact ? Math.min(node.width, 160) : node.width,
-            minHeight: isCompact ? 64 : node.height,
-            borderRadius: isCompact ? 12 : 14,
-            border: `2px solid ${style.nodeStroke}`,
-            background: `linear-gradient(180deg, #ffffff 0%, ${style.nodeFill} 100%)`,
-            padding: isCompact ? 8 : 10,
-            boxShadow: isCompact ? "0 4px 10px rgba(15, 23, 42, 0.06)" : "0 6px 16px rgba(15, 23, 42, 0.08)",
-          },
-          data: {
-            label: (
-              <div data-node-id={node.id} data-node-status={node.status} title={tooltipText} className={cn(isCompact ? "space-y-0.5" : "space-y-1")}>
-                <div className="flex flex-wrap items-center justify-between gap-1">
-                  <p className={cn("font-semibold", isCompact ? "text-[11px]" : "text-xs")} style={{ color: style.text }}>
-                    {compactLabel}
-                  </p>
-                  {!staticMode ? (
-                    <span
-                      className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide"
-                      style={{ backgroundColor: style.chipBg, color: style.chipText }}
-                    >
-                      {STATUS_LABEL[node.status]}
-                    </span>
-                  ) : null}
-                </div>
-                {showSubLabel ? (
-                  <p className={cn(isCompact ? "text-[10px]" : "text-[11px]")} style={{ color: style.text, opacity: 0.9 }}>
-                    {compactSubLabel}
-                  </p>
-                ) : null}
-                {!isCompact && node.detailLines && node.detailLines.length > 0 ? (
-                  <div className="space-y-0.5">
-                    {node.detailLines.map((line) => (
-                      <p key={`${node.id}-${line}`} className="font-mono text-[10px]" style={{ color: style.text }}>
-                        {line}
-                      </p>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ),
-          },
-        }
-      }),
+    () => displayNodes.map((node) => buildFlowNode(node, isCompact, staticMode)),
     [displayNodes, isCompact, staticMode]
   )
 
   const edges = useMemo<Edge[]>(
     () =>
       model.edges.map((edge) => {
-        const sourceStatus = nodeStatusById.get(edge.from) ?? "pending"
+        const sourceStatus: DiagramNodeStatus = nodeStatusById.get(edge.from) ?? "pending"
         const stroke = STATUS_STYLE[sourceStatus].nodeStroke
         return {
           id: edge.id,
           source: edge.from,
           target: edge.to,
-          label: isCompact ? undefined : edge.label,
+          label: resolveEdgeLabel(edge.label, staticMode, isCompact),
           type: "smoothstep",
           markerEnd: {
             type: MarkerType.ArrowClosed,
@@ -243,7 +296,7 @@ export function RolloutStateMachineReactFlow({
           },
         }
       }),
-    [isCompact, model.edges, nodeStatusById]
+    [isCompact, model.edges, nodeStatusById, staticMode]
   )
 
   return (
@@ -280,7 +333,7 @@ export function RolloutStateMachineReactFlow({
             {nodes.length === 0 ? (
               <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">当前没有可展示的流程图数据。</div>
             ) : (
-              <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/70 p-2 shadow-inner">
+              <div className="rounded-xl border border-slate-200 bg-linear-to-b from-slate-50 to-slate-100/70 p-2 shadow-inner">
                 <div className="h-[360px] w-full sm:h-[430px] lg:h-[500px]" data-testid={`state-machine-reactflow-${model.kind}`}>
                   <ReactFlow
                     nodes={nodes}

@@ -11,11 +11,15 @@ import {
 } from "lucide-react"
 import {
   Background,
+  BaseEdge,
   Controls,
+  EdgeLabelRenderer,
   MarkerType,
   Position,
   ReactFlow,
+  getSmoothStepPath,
   type Edge,
+  type EdgeProps,
   type Node,
 } from "@xyflow/react"
 import { Badge } from "@/components/ui/badge"
@@ -29,6 +33,15 @@ import { cn } from "@/lib/utils"
 type StageStatus = "done" | "current" | "pending"
 type TrafficMode = "weight" | "match"
 type TopologyViewMode = "cards" | "flow"
+type TopologyEdgeTone = "stable" | "canary" | "neutral"
+type FlowNodeTone = "route" | "service" | "workload" | "pods" | "notice"
+type StepScalar = string | number | undefined
+
+type TopologyEdgeData = Record<string, unknown> & {
+  labelText?: string
+  dashed?: boolean
+  tone?: TopologyEdgeTone
+}
 
 interface MigrationStage {
   id: string
@@ -108,7 +121,7 @@ function trimText(input: string, max = 42): string {
   return `${input.slice(0, max - 1)}…`
 }
 
-function parseTrafficWeight(value: string | number | undefined, fallback: number): number {
+function parseTrafficWeight(value: StepScalar, fallback: number): number {
   if (value === undefined) {
     return fallback
   }
@@ -120,7 +133,7 @@ function parseTrafficWeight(value: string | number | undefined, fallback: number
   return Math.max(0, Math.min(100, parsed))
 }
 
-function parseReplicaTarget(value: string | number | undefined, baseReplicas: number, fallback: number): number {
+function parseReplicaTarget(value: StepScalar, baseReplicas: number, fallback: number): number {
   if (value === undefined) {
     return fallback
   }
@@ -244,6 +257,45 @@ function nonEmptyString(value: unknown): string | undefined {
   return undefined
 }
 
+function resolveStableRouteName(
+  hasIngressProvider: boolean,
+  hasGatewayProvider: boolean,
+  hasCustomProvider: boolean,
+  ingressName: string,
+  httpRouteName: string
+): string {
+  if (hasIngressProvider) {
+    return `Ingress/${ingressName}`
+  }
+  if (hasGatewayProvider) {
+    return `HTTPRoute/${httpRouteName}`
+  }
+  if (hasCustomProvider) {
+    return "CustomNetworkRef"
+  }
+  return "TrafficRouting(not configured)"
+}
+
+function resolveRouteTypeLabel(
+  hasIngressProvider: boolean,
+  hasGatewayProvider: boolean,
+  hasCustomProvider: boolean
+): string {
+  if (hasIngressProvider && !hasGatewayProvider && !hasCustomProvider) {
+    return "Ingress"
+  }
+  if (!hasIngressProvider && hasGatewayProvider && !hasCustomProvider) {
+    return "HTTPRoute"
+  }
+  if (!hasIngressProvider && !hasGatewayProvider && hasCustomProvider) {
+    return "CustomNetwork"
+  }
+  if (hasIngressProvider || hasGatewayProvider || hasCustomProvider) {
+    return "Ingress/HTTPRoute"
+  }
+  return "TrafficRouting"
+}
+
 function resolveTrafficRoutingScene(detail: TransformedRolloutDetail | null | undefined): TrafficRoutingScene {
   const strategySpec = asRecord(detail?.rawSpec?.strategy)
   // `abtest` is a canary variant (matches-based), so prefer canary spec first.
@@ -271,25 +323,15 @@ function resolveTrafficRoutingScene(detail: TransformedRolloutDetail | null | un
   const hasTrafficRoutingRef = refs.length > 0
   const disableGenerateCanaryService = Boolean(scoped?.disableGenerateCanaryService)
   const hasDedicatedCanaryService = hasTrafficRoutingRef && !disableGenerateCanaryService
+  const routeTypeLabel = resolveRouteTypeLabel(hasIngressProvider, hasGatewayProvider, hasCustomProvider)
 
-  let routeTypeLabel = "TrafficRouting"
-  if (hasIngressProvider && !hasGatewayProvider && !hasCustomProvider) {
-    routeTypeLabel = "Ingress"
-  } else if (!hasIngressProvider && hasGatewayProvider && !hasCustomProvider) {
-    routeTypeLabel = "HTTPRoute"
-  } else if (!hasIngressProvider && !hasGatewayProvider && hasCustomProvider) {
-    routeTypeLabel = "CustomNetwork"
-  } else if (hasIngressProvider || hasGatewayProvider || hasCustomProvider) {
-    routeTypeLabel = "Ingress/HTTPRoute"
-  }
-
-  const stableRouteName = hasIngressProvider
-    ? `Ingress/${ingressName}`
-    : hasGatewayProvider
-      ? `HTTPRoute/${httpRouteName}`
-      : hasCustomProvider
-        ? "CustomNetworkRef"
-        : "TrafficRouting(not configured)"
+  const stableRouteName = resolveStableRouteName(
+    hasIngressProvider,
+    hasGatewayProvider,
+    hasCustomProvider,
+    ingressName,
+    httpRouteName
+  )
   const canaryRouteName = hasIngressProvider ? `Ingress/${ingressName}-canary` : stableRouteName
 
   return {
@@ -333,16 +375,27 @@ function resolveStageStatus(
   return "pending"
 }
 
-function getStepTitle(
-  strategy: ExplainerStrategy,
-  order: number,
-  prevTraffic: number,
-  nextTraffic: number,
-  prevReplicas: number,
-  nextReplicas: number,
-  pauseText: string | undefined,
+type StepTitleInput = {
+  strategy: ExplainerStrategy
+  order: number
+  prevTraffic: number
+  nextTraffic: number
+  prevReplicas: number
+  nextReplicas: number
+  pauseText?: string
   matchMode: boolean
-): string {
+}
+
+function getStepTitle({
+  strategy,
+  order,
+  prevTraffic,
+  nextTraffic,
+  prevReplicas,
+  nextReplicas,
+  pauseText,
+  matchMode,
+}: StepTitleInput): string {
   if (pauseText && nextReplicas === prevReplicas && nextTraffic === prevTraffic && !matchMode) {
     return `Step ${order}: Pause / Approval`
   }
@@ -382,6 +435,52 @@ function buildStepSpecSummary(step: RolloutStep, pauseText: string | undefined, 
   return parts.length > 0 ? parts.join(", ") : "step spec: no replicas/traffic/pause field"
 }
 
+function resolveCanaryTrafficText(mode: TrafficMode, matchRuleSummary: string | undefined, nextTraffic: number): string {
+  if (mode === "match") {
+    return `rule(${matchRuleSummary ?? "headers/query"})`
+  }
+  return `${nextTraffic}%`
+}
+
+type TrafficDisplayMode = "card" | "flow"
+
+function resolveTrafficLabels(
+  stage: MigrationStage,
+  implicitCanaryTraffic: number,
+  matchRuleDisplay: string,
+  mode: TrafficDisplayMode
+): { stableTraffic: string; canaryTraffic: string } {
+  const endpointSuffix = mode === "card" ? " (endpoint ratio)" : " endpoint ratio"
+  const ruleMatchedLabel = mode === "card" ? `命中规则流量 (${matchRuleDisplay})` : `rule-matched (${matchRuleDisplay})`
+  const ruleUnmatchedLabel = mode === "card" ? "未命中规则流量" : "rule-unmatched"
+
+  if (stage.canaryRouteEnabled) {
+    if (stage.trafficMode === "match") {
+      return {
+        stableTraffic: ruleUnmatchedLabel,
+        canaryTraffic: ruleMatchedLabel,
+      }
+    }
+    return {
+      stableTraffic: `${Math.max(0, 100 - stage.canaryTraffic)}%`,
+      canaryTraffic: `${stage.canaryTraffic}%`,
+    }
+  }
+
+  const hasImplicitEndpointSplit = !stage.canaryServiceEnabled && stage.canaryPods > 0
+  if (hasImplicitEndpointSplit) {
+    return {
+      stableTraffic: `${Math.max(0, 100 - implicitCanaryTraffic)}%${endpointSuffix}`,
+      canaryTraffic: `${implicitCanaryTraffic}%${endpointSuffix}`,
+    }
+  }
+
+  return {
+    stableTraffic: "100%",
+    canaryTraffic: "0%",
+  }
+}
+
 function calcPodsByStyle(
   useExtraCanaryDeployment: boolean,
   desiredReplicas: number,
@@ -409,6 +508,153 @@ function calcPodsByStyle(
   }
 }
 
+function resolveBaseReplicas(
+  desiredWorkloadReplicas: number | undefined,
+  useExtraCanaryDeployment: boolean,
+  stableCurrent: number,
+  inferredTotal: number
+): number {
+  if (desiredWorkloadReplicas && desiredWorkloadReplicas > 0) {
+    return desiredWorkloadReplicas
+  }
+  if (useExtraCanaryDeployment) {
+    if (stableCurrent > 0) {
+      return stableCurrent
+    }
+    if (inferredTotal > 0) {
+      return inferredTotal
+    }
+    return 10
+  }
+  if (inferredTotal > 0) {
+    return inferredTotal
+  }
+  return 10
+}
+
+type DefaultStageTemplate = {
+  pods: number
+  traffic: number
+  mode: TrafficMode
+  spec: string
+}
+
+function createDefaultStageTemplates(strategy: ExplainerStrategy, baseReplicas: number): DefaultStageTemplate[] {
+  const tenPercentPods = Math.max(1, Math.ceil(baseReplicas * 0.1))
+  const halfPods = Math.max(1, Math.ceil(baseReplicas * 0.5))
+  const steps: DefaultStageTemplate[] = [
+    { pods: tenPercentPods, traffic: 0, mode: "weight", spec: "replicas=10%, traffic=0%" },
+    { pods: tenPercentPods, traffic: 10, mode: "weight", spec: "replicas=10%, traffic=10%" },
+    { pods: halfPods, traffic: 50, mode: "weight", spec: "replicas=50%, traffic=50%" },
+    { pods: baseReplicas, traffic: 100, mode: "weight", spec: "replicas=100%, traffic=100%" },
+  ]
+  if (strategy !== "abtest") {
+    return steps
+  }
+  return [
+    { pods: tenPercentPods, traffic: 0, mode: "match", spec: "replicas=10%, matches=1" },
+    ...steps.slice(1),
+  ]
+}
+
+function resolveBaselineSummary(useExtraCanaryDeployment: boolean, fromDetail: boolean): string {
+  if (useExtraCanaryDeployment) {
+    return fromDetail
+      ? "stable Deployment 保持服务，等待创建 canary Deployment。"
+      : "stable Deployment 提供全部流量，canary Deployment 尚未创建。"
+  }
+  return fromDetail
+    ? "新版本尚未接流，先保持 stable baseline。"
+    : "单 Deployment 基线运行，新版本 Pod 尚未接流量。"
+}
+
+function resolveBaselineStableServiceOperation(firstStepHasRoutingSignals: boolean): string {
+  return firstStepHasRoutingSignals
+    ? "stable Service selector -> stableRevision（首个 step 有 traffic/matches 时）"
+    : "首个 step 仅 replicas，stable Service 保持原 selector"
+}
+
+function createBaselineOps(params: Readonly<{
+  useExtraCanaryDeployment: boolean
+  routingScene: TrafficRoutingScene
+  firstStepHasRoutingSignals?: boolean
+  includeRolloutInitialization?: boolean
+}>): string[] {
+  const ops: string[] = []
+  if (params.includeRolloutInitialization) {
+    ops.push("Rollout 初始化，Workload 标记 in-progressing")
+  }
+  const stableServiceOperation = params.firstStepHasRoutingSignals === undefined
+    ? "stable Service selector -> stableRevision"
+    : resolveBaselineStableServiceOperation(params.firstStepHasRoutingSignals)
+  ops.push(stableServiceOperation)
+  if (params.useExtraCanaryDeployment) {
+    ops.push("canary Deployment not created yet")
+  } else {
+    ops.push(params.firstStepHasRoutingSignals === undefined ? "Workload partition=stable" : "canary replicas=0")
+  }
+  if (params.routingScene.hasTrafficRoutingRef) {
+    const routeOperation = params.firstStepHasRoutingSignals === undefined
+      ? `${params.routingScene.routeTypeLabel} 100% -> stable Service`
+      : `${params.routingScene.routeTypeLabel} 默认保持 stable 路径`
+    ops.push(routeOperation)
+  } else {
+    ops.push("未配置 trafficRoutings，不会创建 canary Service/Ingress")
+  }
+  return ops
+}
+
+function resolveDefaultStepSummary(
+  item: DefaultStageTemplate,
+  pods: ReturnType<typeof calcPodsByStyle>,
+  baseReplicas: number,
+  matchRuleSummary: string | undefined
+): string {
+  if (item.mode === "match") {
+    return `canary Pod ${pods.canaryPods}，按规则导流（${matchRuleSummary ?? "headers/query 规则命中流量"}）`
+  }
+  return `canary Pod ${pods.canaryPods}（约 ${toPercent(item.pods, baseReplicas)}%），canary traffic ${item.traffic}%`
+}
+
+function createDefaultStepOps(params: Readonly<{
+  useExtraCanaryDeployment: boolean
+  pods: ReturnType<typeof calcPodsByStyle>
+  item: DefaultStageTemplate
+  routingScene: TrafficRoutingScene
+  canaryServiceEnabled: boolean
+  matchRuleSummary: string | undefined
+  order: number
+}>): string[] {
+  const ops: string[] = []
+  if (params.useExtraCanaryDeployment) {
+    ops.push(`Canary Deployment replicas -> ${params.pods.canaryWorkloadReplicas}`)
+  } else {
+    ops.push(`Workload partition update -> canary replicas ${params.item.pods}`)
+  }
+
+  if (!params.routingScene.hasTrafficRoutingRef) {
+    ops.push("未配置 trafficRoutings，跳过 Service/Ingress/HTTPRoute patch")
+  } else if (params.item.mode === "match") {
+    ops.push(
+      "TrafficRouting.patch: matches(headers/query) -> canary Service",
+      `Match Rule: ${params.matchRuleSummary ?? "headers/query 规则命中流量"}`
+    )
+  } else {
+    ops.push(`TrafficRouting.patch: canary weight -> ${params.item.traffic}%`)
+    if (params.item.traffic === 0) {
+      const trafficZeroOperation = params.canaryServiceEnabled
+        ? "traffic=0%，canary Service 已创建用于后续步骤，canary 路由资源暂不创建"
+        : "traffic=0%，canary 路由资源保持未创建或已清理"
+      ops.push(trafficZeroOperation)
+    }
+  }
+
+  if (params.order === 1 && params.item.traffic === 0) {
+    ops.push("新 Pod 已启动但流量仍保持 0% canary")
+  }
+  return ops
+}
+
 function buildDefaultStages(
   strategy: ExplainerStrategy,
   baseReplicas: number,
@@ -416,20 +662,7 @@ function buildDefaultStages(
   useExtraCanaryDeployment: boolean,
   routingScene: TrafficRoutingScene
 ): MigrationStage[] {
-  const defaults =
-    strategy === "abtest"
-      ? [
-          { pods: Math.max(1, Math.ceil(baseReplicas * 0.1)), traffic: 0, mode: "match" as const, spec: "replicas=10%, matches=1" },
-          { pods: Math.max(1, Math.ceil(baseReplicas * 0.1)), traffic: 10, mode: "weight" as const, spec: "replicas=10%, traffic=10%" },
-          { pods: Math.max(1, Math.ceil(baseReplicas * 0.5)), traffic: 50, mode: "weight" as const, spec: "replicas=50%, traffic=50%" },
-          { pods: baseReplicas, traffic: 100, mode: "weight" as const, spec: "replicas=100%, traffic=100%" },
-        ]
-      : [
-          { pods: Math.max(1, Math.ceil(baseReplicas * 0.1)), traffic: 0, mode: "weight" as const, spec: "replicas=10%, traffic=0%" },
-          { pods: Math.max(1, Math.ceil(baseReplicas * 0.1)), traffic: 10, mode: "weight" as const, spec: "replicas=10%, traffic=10%" },
-          { pods: Math.max(1, Math.ceil(baseReplicas * 0.5)), traffic: 50, mode: "weight" as const, spec: "replicas=50%, traffic=50%" },
-          { pods: baseReplicas, traffic: 100, mode: "weight" as const, spec: "replicas=100%, traffic=100%" },
-        ]
+  const defaults = createDefaultStageTemplates(strategy, baseReplicas)
 
   const baselinePods = calcPodsByStyle(useExtraCanaryDeployment, baseReplicas, 0)
   const stages: MigrationStage[] = [
@@ -437,9 +670,7 @@ function buildDefaultStages(
       id: "baseline",
       order: 0,
       title: "Step 0: Stable 基线",
-      summary: useExtraCanaryDeployment
-        ? "stable Deployment 提供全部流量，canary Deployment 尚未创建。"
-        : "单 Deployment 基线运行，新版本 Pod 尚未接流量。",
+      summary: resolveBaselineSummary(useExtraCanaryDeployment, false),
       status: resolveStageStatus(0, defaults.length, snapshot),
       canaryPods: baselinePods.canaryPods,
       stablePods: baselinePods.stablePods,
@@ -452,13 +683,10 @@ function buildDefaultStages(
       canaryServiceEnabled: false,
       canaryIngressEnabled: false,
       stepSpecSummary: "baseline: traffic=0%, replicas=0",
-      ops: [
-        "stable Service selector -> stableRevision",
-        useExtraCanaryDeployment ? "canary Deployment not created yet" : "Workload partition=stable",
-        routingScene.hasTrafficRoutingRef
-          ? `${routingScene.routeTypeLabel} 100% -> stable Service`
-          : "未配置 trafficRoutings，不会创建 canary Service/Ingress",
-      ],
+      ops: createBaselineOps({
+        useExtraCanaryDeployment,
+        routingScene,
+      }),
     },
   ]
 
@@ -466,48 +694,30 @@ function buildDefaultStages(
   let prevTraffic = 0
   defaults.forEach((item, index) => {
     const order = index + 1
-    const title = getStepTitle(
+    const title = getStepTitle({
       strategy,
       order,
       prevTraffic,
-      item.traffic,
-      prevCanaryReplicas,
-      item.pods,
-      undefined,
-      item.mode === "match"
-    )
+      nextTraffic: item.traffic,
+      prevReplicas: prevCanaryReplicas,
+      nextReplicas: item.pods,
+      pauseText: undefined,
+      matchMode: item.mode === "match",
+    })
     const pods = calcPodsByStyle(useExtraCanaryDeployment, baseReplicas, item.pods)
     const matchRuleSummary = item.mode === "match" ? "headers/query 规则命中流量" : undefined
-    const summary =
-      item.mode === "match"
-        ? `canary Pod ${pods.canaryPods}，按规则导流（${matchRuleSummary}）`
-        : `canary Pod ${pods.canaryPods}（约 ${toPercent(item.pods, baseReplicas)}%），canary traffic ${item.traffic}%`
+    const summary = resolveDefaultStepSummary(item, pods, baseReplicas, matchRuleSummary)
     const canaryRouteEnabled = routingScene.hasTrafficRoutingRef && (item.mode === "match" || item.traffic > 0)
     const canaryServiceEnabled = routingScene.hasTrafficRoutingRef && routingScene.hasDedicatedCanaryService
-
-    const ops: string[] = [
-      useExtraCanaryDeployment
-        ? `Canary Deployment replicas -> ${pods.canaryWorkloadReplicas}`
-        : `Workload partition update -> canary replicas ${item.pods}`,
-    ]
-    if (!routingScene.hasTrafficRoutingRef) {
-      ops.push("未配置 trafficRoutings，跳过 Service/Ingress/HTTPRoute patch")
-    } else if (item.mode === "match") {
-      ops.push("TrafficRouting.patch: matches(headers/query) -> canary Service")
-      ops.push(`Match Rule: ${matchRuleSummary}`)
-    } else {
-      ops.push(`TrafficRouting.patch: canary weight -> ${item.traffic}%`)
-      if (item.traffic === 0) {
-        ops.push(
-          canaryServiceEnabled
-            ? "traffic=0%，canary Service 已创建用于后续步骤，canary 路由资源暂不创建"
-            : "traffic=0%，canary 路由资源保持未创建或已清理"
-        )
-      }
-    }
-    if (order === 1 && item.traffic === 0) {
-      ops.push("新 Pod 已启动但流量仍保持 0% canary")
-    }
+    const ops = createDefaultStepOps({
+      useExtraCanaryDeployment,
+      pods,
+      item,
+      routingScene,
+      canaryServiceEnabled,
+      matchRuleSummary,
+      order,
+    })
 
     stages.push({
       id: `default-step-${order}`,
@@ -536,6 +746,142 @@ function buildDefaultStages(
   return stages
 }
 
+function resolveDetailStepSummary(
+  useExtraCanaryDeployment: boolean,
+  pods: ReturnType<typeof calcPodsByStyle>,
+  canaryTrafficText: string
+): string {
+  if (useExtraCanaryDeployment) {
+    return `stable Deployment=${pods.stableWorkloadReplicas}，canary Deployment=${pods.canaryWorkloadReplicas}，canary traffic=${canaryTrafficText}`
+  }
+  return `stable Pod ${pods.stablePods}，canary Pod ${pods.canaryPods}，canary traffic ${canaryTrafficText}`
+}
+
+function createWorkloadOps(params: Readonly<{
+  useExtraCanaryDeployment: boolean
+  prevCanaryWorkloadReplicas: number
+  nextCanaryWorkloadReplicas: number
+  stepReplicas: StepScalar
+  nextCanaryReplicas: number
+}>): string[] {
+  if (params.useExtraCanaryDeployment) {
+    if (params.prevCanaryWorkloadReplicas === 0 && params.nextCanaryWorkloadReplicas > 0) {
+      return [`Create canary Deployment, replicas=${params.nextCanaryWorkloadReplicas}`]
+    }
+    if (params.prevCanaryWorkloadReplicas !== params.nextCanaryWorkloadReplicas) {
+      return [`Patch canary Deployment replicas -> ${params.nextCanaryWorkloadReplicas}`]
+    }
+    return []
+  }
+  if (params.stepReplicas !== undefined) {
+    return [`Update workload partition -> canary replicas ${params.nextCanaryReplicas}`]
+  }
+  return []
+}
+
+function createRoutingOps(params: Readonly<{
+  routingScene: TrafficRoutingScene
+  stepTraffic: StepScalar
+  nextTraffic: number
+  matchMode: boolean
+  canaryServiceEnabled: boolean
+  matchRuleSummary: string | undefined
+}>): string[] {
+  if (!params.routingScene.hasTrafficRoutingRef) {
+    if (params.stepTraffic !== undefined || params.matchMode) {
+      return ["未配置 trafficRoutings，TrafficRouting 相关 patch 不会执行"]
+    }
+    return []
+  }
+
+  const ops: string[] = []
+  if (params.stepTraffic !== undefined) {
+    ops.push(`TrafficRouting.patch: canary weight -> ${params.nextTraffic}%`)
+    if (params.nextTraffic === 0 && !params.matchMode) {
+      const trafficZeroOperation = params.canaryServiceEnabled
+        ? "traffic=0%，canary Service 已创建用于后续步骤，canary 路由资源暂不创建"
+        : "traffic=0%，canary 路由资源保持未创建或已清理"
+      ops.push(trafficZeroOperation)
+    }
+  }
+  if (params.matchMode) {
+    ops.push("TrafficRouting.patch: matches(headers/query) -> canary Service")
+    if (params.matchRuleSummary) {
+      ops.push(`Match Rule: ${params.matchRuleSummary}`)
+    }
+  }
+  return ops
+}
+
+function createImplicitTrafficOp(params: Readonly<{
+  matchMode: boolean
+  stepTraffic: StepScalar
+  nextCanaryReplicas: number
+  pods: ReturnType<typeof calcPodsByStyle>
+}>): string[] {
+  if (params.matchMode || params.stepTraffic !== undefined || params.nextCanaryReplicas <= 0) {
+    return []
+  }
+  const implicit = Math.max(0, Math.min(100, toPercent(params.pods.canaryPods, params.pods.canaryPods + params.pods.stablePods)))
+  return [`未显式配置 traffic，流量按 stable Service endpoints 自然分配（约 canary ${implicit}%）`]
+}
+
+function createPauseOps(pauseText: string | undefined): string[] {
+  if (!pauseText) {
+    return []
+  }
+  return [`Rollout.statusPatch: StepPaused，pause=${pauseText}`]
+}
+
+function createDetailStepOps(params: Readonly<{
+  useExtraCanaryDeployment: boolean
+  prevCanaryWorkloadReplicas: number
+  nextCanaryWorkloadReplicas: number
+  stepReplicas: StepScalar
+  nextCanaryReplicas: number
+  routingScene: TrafficRoutingScene
+  stepTraffic: StepScalar
+  nextTraffic: number
+  matchMode: boolean
+  canaryServiceEnabled: boolean
+  matchRuleSummary: string | undefined
+  pauseText: string | undefined
+  order: number
+  pods: ReturnType<typeof calcPodsByStyle>
+}>): string[] {
+  const ops = [
+    ...createWorkloadOps({
+      useExtraCanaryDeployment: params.useExtraCanaryDeployment,
+      prevCanaryWorkloadReplicas: params.prevCanaryWorkloadReplicas,
+      nextCanaryWorkloadReplicas: params.nextCanaryWorkloadReplicas,
+      stepReplicas: params.stepReplicas,
+      nextCanaryReplicas: params.nextCanaryReplicas,
+    }),
+    ...createRoutingOps({
+      routingScene: params.routingScene,
+      stepTraffic: params.stepTraffic,
+      nextTraffic: params.nextTraffic,
+      matchMode: params.matchMode,
+      canaryServiceEnabled: params.canaryServiceEnabled,
+      matchRuleSummary: params.matchRuleSummary,
+    }),
+    ...createImplicitTrafficOp({
+      matchMode: params.matchMode,
+      stepTraffic: params.stepTraffic,
+      nextCanaryReplicas: params.nextCanaryReplicas,
+      pods: params.pods,
+    }),
+    ...createPauseOps(params.pauseText),
+  ]
+  if (params.order === 1 && params.nextCanaryReplicas > 0 && params.nextTraffic === 0 && !params.matchMode) {
+    ops.push("新 Pod 已启动但流量仍保持 0% canary")
+  }
+  if (ops.length === 0) {
+    return ["Rollout 继续 Reconcile，保持当前流量/副本目标"]
+  }
+  return ops
+}
+
 function buildStagesFromDetail(
   strategy: ExplainerStrategy,
   detail: TransformedRolloutDetail | null | undefined,
@@ -550,18 +896,12 @@ function buildStagesFromDetail(
   const stableCurrent = Math.max(actualStablePods ?? detail?.stableReplicas ?? 0, 0)
   const canaryCurrent = Math.max(actualCanaryPods ?? detail?.canaryReplicas ?? 0, 0)
   const inferredTotal = stableCurrent + canaryCurrent
-  const baseReplicas =
-    desiredWorkloadReplicas && desiredWorkloadReplicas > 0
-      ? desiredWorkloadReplicas
-      : useExtraCanaryDeployment
-        ? stableCurrent > 0
-          ? stableCurrent
-          : inferredTotal > 0
-            ? inferredTotal
-            : 10
-        : inferredTotal > 0
-          ? inferredTotal
-          : 10
+  const baseReplicas = resolveBaseReplicas(
+    desiredWorkloadReplicas,
+    useExtraCanaryDeployment,
+    stableCurrent,
+    inferredTotal
+  )
 
   const steps = detail?.steps ?? []
   if (steps.length === 0) {
@@ -576,9 +916,7 @@ function buildStagesFromDetail(
       id: "baseline",
       order: 0,
       title: "Step 0: Stable 基线",
-      summary: useExtraCanaryDeployment
-        ? "stable Deployment 保持服务，等待创建 canary Deployment。"
-        : "新版本尚未接流，先保持 stable baseline。",
+      summary: resolveBaselineSummary(useExtraCanaryDeployment, true),
       status: resolveStageStatus(0, steps.length, snapshot),
       canaryPods: baselinePods.canaryPods,
       stablePods: baselinePods.stablePods,
@@ -591,16 +929,12 @@ function buildStagesFromDetail(
       canaryServiceEnabled: false,
       canaryIngressEnabled: false,
       stepSpecSummary: "baseline: traffic=0%, replicas=0",
-      ops: [
-        "Rollout 初始化，Workload 标记 in-progressing",
-        firstStepHasRoutingSignals
-          ? "stable Service selector -> stableRevision（首个 step 有 traffic/matches 时）"
-          : "首个 step 仅 replicas，stable Service 保持原 selector",
-        useExtraCanaryDeployment ? "canary Deployment not created yet" : "canary replicas=0",
-        routingScene.hasTrafficRoutingRef
-          ? `${routingScene.routeTypeLabel} 默认保持 stable 路径`
-          : "未配置 trafficRoutings，不会创建 canary Service/Ingress",
-      ],
+      ops: createBaselineOps({
+        useExtraCanaryDeployment,
+        routingScene,
+        firstStepHasRoutingSignals,
+        includeRolloutInitialization: true,
+      }),
     },
   ]
 
@@ -615,11 +949,11 @@ function buildStagesFromDetail(
     const nextMode: TrafficMode = matchMode ? "match" : "weight"
     const pauseText = getPauseText(step.pause)
     const nextCanaryReplicas = parseReplicaTarget(
-      step.replicas as string | number | undefined,
+      step.replicas,
       baseReplicas,
       prevCanaryReplicas
     )
-    const nextTraffic = parseTrafficWeight(step.traffic as string | number | undefined, prevTraffic)
+    const nextTraffic = parseTrafficWeight(step.traffic, prevTraffic)
     const pods = calcPodsByStyle(useExtraCanaryDeployment, baseReplicas, nextCanaryReplicas)
     const canaryRouteEnabled = routingScene.hasTrafficRoutingRef && (matchMode || nextTraffic > 0)
     const canaryServiceEnabled =
@@ -627,66 +961,34 @@ function buildStagesFromDetail(
       routingScene.hasDedicatedCanaryService &&
       (matchMode || step.traffic !== undefined)
 
-    const title = getStepTitle(
+    const title = getStepTitle({
       strategy,
       order,
       prevTraffic,
       nextTraffic,
-      prevCanaryReplicas,
-      nextCanaryReplicas,
+      prevReplicas: prevCanaryReplicas,
+      nextReplicas: nextCanaryReplicas,
       pauseText,
-      matchMode
-    )
-    const summary = useExtraCanaryDeployment
-      ? `stable Deployment=${pods.stableWorkloadReplicas}，canary Deployment=${pods.canaryWorkloadReplicas}，canary traffic=${nextMode === "match" ? `rule(${matchRuleSummary ?? "headers/query"})` : `${nextTraffic}%`}`
-      : `stable Pod ${pods.stablePods}，canary Pod ${pods.canaryPods}，canary traffic ${nextMode === "match" ? `rule(${matchRuleSummary ?? "headers/query"})` : `${nextTraffic}%`}`
-
-    const ops: string[] = []
-    if (useExtraCanaryDeployment) {
-      if (prevCanaryWorkloadReplicas === 0 && pods.canaryWorkloadReplicas > 0) {
-        ops.push(`Create canary Deployment, replicas=${pods.canaryWorkloadReplicas}`)
-      } else if (prevCanaryWorkloadReplicas !== pods.canaryWorkloadReplicas) {
-        ops.push(`Patch canary Deployment replicas -> ${pods.canaryWorkloadReplicas}`)
-      }
-    } else if (step.replicas !== undefined) {
-      ops.push(`Update workload partition -> canary replicas ${nextCanaryReplicas}`)
-    }
-
-    if (!routingScene.hasTrafficRoutingRef) {
-      if (step.traffic !== undefined || matchMode) {
-        ops.push("未配置 trafficRoutings，TrafficRouting 相关 patch 不会执行")
-      }
-    } else {
-      if (step.traffic !== undefined) {
-        ops.push(`TrafficRouting.patch: canary weight -> ${nextTraffic}%`)
-        if (nextTraffic === 0 && !matchMode) {
-          ops.push(
-            canaryServiceEnabled
-              ? "traffic=0%，canary Service 已创建用于后续步骤，canary 路由资源暂不创建"
-              : "traffic=0%，canary 路由资源保持未创建或已清理"
-          )
-        }
-      }
-      if (matchMode) {
-        ops.push("TrafficRouting.patch: matches(headers/query) -> canary Service")
-        if (matchRuleSummary) {
-          ops.push(`Match Rule: ${matchRuleSummary}`)
-        }
-      }
-    }
-    if (!matchMode && step.traffic === undefined && nextCanaryReplicas > 0) {
-      const implicit = Math.max(0, Math.min(100, toPercent(pods.canaryPods, pods.canaryPods + pods.stablePods)))
-      ops.push(`未显式配置 traffic，流量按 stable Service endpoints 自然分配（约 canary ${implicit}%）`)
-    }
-    if (pauseText) {
-      ops.push(`Rollout.statusPatch: StepPaused，pause=${pauseText}`)
-    }
-    if (ops.length === 0) {
-      ops.push("Rollout 继续 Reconcile，保持当前流量/副本目标")
-    }
-    if (order === 1 && nextCanaryReplicas > 0 && nextTraffic === 0 && nextMode !== "match") {
-      ops.push("新 Pod 已启动但流量仍保持 0% canary")
-    }
+      matchMode,
+    })
+    const canaryTrafficText = resolveCanaryTrafficText(nextMode, matchRuleSummary, nextTraffic)
+    const summary = resolveDetailStepSummary(useExtraCanaryDeployment, pods, canaryTrafficText)
+    const ops = createDetailStepOps({
+      useExtraCanaryDeployment,
+      prevCanaryWorkloadReplicas,
+      nextCanaryWorkloadReplicas: pods.canaryWorkloadReplicas,
+      stepReplicas: step.replicas,
+      nextCanaryReplicas,
+      routingScene,
+      stepTraffic: step.traffic,
+      nextTraffic,
+      matchMode,
+      canaryServiceEnabled,
+      matchRuleSummary,
+      pauseText,
+      order,
+      pods,
+    })
 
     stages.push({
       id: `detail-step-${order}`,
@@ -783,22 +1085,8 @@ function StageCard({
 }>) {
   const style = STATUS_STYLE[stage.status]
   const implicitCanaryTraffic = calculateImplicitCanaryTraffic(stage)
-  const hasImplicitEndpointSplit = !stage.canaryRouteEnabled && !stage.canaryServiceEnabled && stage.canaryPods > 0
   const matchRuleDisplay = stage.matchRuleSummary ? trimText(stage.matchRuleSummary, 44) : "headers/query"
-  const stableTraffic = stage.canaryRouteEnabled
-    ? stage.trafficMode === "match"
-      ? "未命中规则流量"
-      : `${Math.max(0, 100 - stage.canaryTraffic)}%`
-    : hasImplicitEndpointSplit
-      ? `${Math.max(0, 100 - implicitCanaryTraffic)}% (endpoint ratio)`
-      : "100%"
-  const canaryTraffic = stage.canaryRouteEnabled
-    ? stage.trafficMode === "match"
-      ? `命中规则流量 (${matchRuleDisplay})`
-      : `${stage.canaryTraffic}%`
-    : hasImplicitEndpointSplit
-      ? `${implicitCanaryTraffic}% (endpoint ratio)`
-      : "0%"
+  const { stableTraffic, canaryTraffic } = resolveTrafficLabels(stage, implicitCanaryTraffic, matchRuleDisplay, "card")
   const canaryWorkloadLabel = stage.useExtraCanaryDeployment
     ? `${canaryWorkloadName} (replicas=${stage.canaryWorkloadReplicas})`
     : `${stableWorkloadName} (shared)`
@@ -886,9 +1174,9 @@ function createFlowNode(
   y: number,
   title: string,
   subtitle: string,
-  tone: "route" | "service" | "workload" | "pods" | "notice"
+  tone: FlowNodeTone
 ): Node<{ label: ReactNode; title: string; subtitle: string }> {
-  const tones: Record<typeof tone, { border: string; bg: string; title: string }> = {
+  const tones: Record<FlowNodeTone, { border: string; bg: string; title: string }> = {
     route: { border: "#06b6d4", bg: "#ecfeff", title: "#0e7490" },
     service: { border: "#6366f1", bg: "#eef2ff", title: "#3730a3" },
     workload: { border: "#38bdf8", bg: "#eff6ff", title: "#0369a1" },
@@ -903,19 +1191,20 @@ function createFlowNode(
       title,
       subtitle,
       label: (
-        <div className="leading-tight">
-          <p className="font-semibold" style={{ color: color.title }}>{title}</p>
-          <p className="mt-1 text-[11px] text-slate-600">{subtitle}</p>
+        <div className="leading-snug">
+          <p className="text-[14px] font-semibold" style={{ color: color.title }}>{title}</p>
+          <p className="mt-1 text-[13px] text-slate-600">{subtitle}</p>
         </div>
       ),
     },
     style: {
-      width: 230,
-      borderRadius: 10,
+      width: 256,
+      minHeight: 82,
+      borderRadius: 11,
       border: `2px solid ${color.border}`,
       background: color.bg,
-      padding: 8,
-      fontSize: 12,
+      padding: 10,
+      fontSize: 14,
       boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
     },
     sourcePosition: Position.Right,
@@ -928,113 +1217,320 @@ function createFlowNode(
   }
 }
 
+function resolveEdgeStroke(tone: TopologyEdgeTone | undefined): string {
+  if (tone === "stable") {
+    return "#334155"
+  }
+  if (tone === "canary") {
+    return "#475569"
+  }
+  return "#64748b"
+}
+
+function estimateLabelLineCount(text: string, charsPerLine = 27): number {
+  const words = text.trim().split(/\s+/).filter((word) => word.length > 0)
+  if (words.length === 0) {
+    return 1
+  }
+
+  let lines = 1
+  let width = 0
+  words.forEach((word) => {
+    if (width === 0) {
+      width = word.length
+      return
+    }
+    const next = width + 1 + word.length
+    if (next > charsPerLine) {
+      lines += 1
+      width = word.length
+      return
+    }
+    width = next
+  })
+  return lines
+}
+
+function TopologyEdge(props: Readonly<EdgeProps<Edge<TopologyEdgeData>>>): ReactNode {
+  const {
+    id,
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    markerEnd,
+    data,
+  } = props
+
+  const tone = data?.tone ?? "neutral"
+  const stroke = resolveEdgeStroke(tone)
+  const dashed = Boolean(data?.dashed)
+  const labelText = data?.labelText?.trim() ?? ""
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+    borderRadius: 14,
+    offset: 20,
+  })
+  const lineCount = estimateLabelLineCount(labelText)
+  const yOffset = 16 + Math.max(0, lineCount - 1) * 14
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        markerEnd={markerEnd}
+        style={{
+          stroke,
+          strokeWidth: dashed ? 1.6 : 1.8,
+          strokeDasharray: dashed ? "6 4" : undefined,
+        }}
+      />
+      {labelText ? (
+        <EdgeLabelRenderer>
+          <div
+            data-testid={`topology-edge-label-${id}`}
+            className="pointer-events-none absolute max-w-[300px] whitespace-normal wrap-break-word text-[13px] leading-[1.35rem] text-slate-700"
+            style={{
+              left: labelX,
+              top: labelY,
+              transform: `translate(-50%, calc(-100% - ${yOffset}px))`,
+              textShadow: "0 1px 1px rgba(255,255,255,0.88)",
+              zIndex: 40,
+            }}
+          >
+            {labelText}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
+    </>
+  )
+}
+
 function createFlowEdge(
   id: string,
   source: string,
   target: string,
   label?: string,
-  dashed?: boolean
-): Edge {
+  options?: {
+    dashed?: boolean
+    tone?: TopologyEdgeTone
+  }
+): Edge<TopologyEdgeData> {
+  const tone = options?.tone ?? "neutral"
+  const dashed = options?.dashed ?? false
+  const stroke = resolveEdgeStroke(tone)
+
   return {
     id,
     source,
     target,
-    label,
-    labelStyle: { fontSize: 11, fill: "#334155" },
-    markerEnd: { type: MarkerType.ArrowClosed, color: "#334155" },
+    type: "topologyEdge",
+    data: {
+      labelText: label,
+      dashed,
+      tone,
+    },
+    markerEnd: { type: MarkerType.ArrowClosed, color: stroke, width: 16, height: 16 },
     style: dashed
-      ? { stroke: "#334155", strokeWidth: 1.6, strokeDasharray: "6 4" }
-      : { stroke: "#334155", strokeWidth: 1.8 },
-    type: "smoothstep",
+      ? { stroke, strokeWidth: 1.6, strokeDasharray: "6 4" }
+      : { stroke, strokeWidth: 1.8 },
+    zIndex: dashed ? 2 : 3,
   }
 }
 
-function buildStageFlowGraph(
-  stage: MigrationStage,
-  stableServiceName: string,
-  canaryServiceName: string,
-  stableRouteName: string,
-  canaryRouteName: string,
-  routeTypeLabel: string,
-  stableWorkloadName: string,
+type StageFlowResourceNames = {
+  stableServiceName: string
+  canaryServiceName: string
+  stableRouteName: string
+  canaryRouteName: string
+  routeTypeLabel: string
+  stableWorkloadName: string
   canaryWorkloadName: string
-): { nodes: Node[]; edges: Edge[] } {
-  const implicitCanaryTraffic = calculateImplicitCanaryTraffic(stage)
-  const hasImplicitEndpointSplit = !stage.canaryRouteEnabled && !stage.canaryServiceEnabled && stage.canaryPods > 0
-  const matchRuleDisplay = stage.matchRuleSummary ? trimText(stage.matchRuleSummary, 36) : "headers/query"
-  const stableTraffic = stage.canaryRouteEnabled
-    ? stage.trafficMode === "match"
-      ? "rule-unmatched"
-      : `${Math.max(0, 100 - stage.canaryTraffic)}%`
-    : hasImplicitEndpointSplit
-      ? `${Math.max(0, 100 - implicitCanaryTraffic)}% endpoint ratio`
-      : "100%"
-  const canaryTraffic = stage.canaryRouteEnabled
-    ? stage.trafficMode === "match"
-      ? `rule-matched (${matchRuleDisplay})`
-      : `${stage.canaryTraffic}%`
-    : hasImplicitEndpointSplit
-      ? `${implicitCanaryTraffic}% endpoint ratio`
-      : "0%"
-  const hasCanaryWorkload = stage.useExtraCanaryDeployment || stage.canaryWorkloadReplicas > 0 || stage.canaryPods > 0
-  const canaryServiceDisplay = stage.canaryServiceEnabled ? canaryServiceName : `${stableServiceName} (reused)`
-  const canaryWorkloadDisplay = stage.useExtraCanaryDeployment ? canaryWorkloadName : `${stableWorkloadName} (shared)`
+}
 
-  const nodes: Node[] = [
-    createFlowNode("stable-route", 20, 65, stableRouteName, `${routeTypeLabel} stable`, "route"),
-    createFlowNode("stable-service", 290, 65, stableServiceName, `traffic=${stableTraffic}`, "service"),
-    createFlowNode("stable-workload", 560, 65, stableWorkloadName, `replicas=${stage.stableWorkloadReplicas}`, "workload"),
-    createFlowNode("stable-pods", 830, 65, "stable Pods", `target=${stage.stablePods}, actual=${stage.actualStablePods ?? "-"}`, "pods"),
-  ]
+type StageFlowGraphParams = StageFlowResourceNames & {
+  stage: MigrationStage
+}
 
-  const edges: Edge[] = [
-    createFlowEdge("stable-route-to-service", "stable-route", "stable-service", stableTraffic),
-    createFlowEdge("stable-service-to-workload", "stable-service", "stable-workload"),
-    createFlowEdge("stable-workload-to-pods", "stable-workload", "stable-pods"),
-  ]
+function buildStableLane(params: Readonly<{
+  stage: MigrationStage
+  names: StageFlowResourceNames
+  stableTraffic: string
+}>): { nodes: Node[]; edges: Edge[] } {
+  const { stage, names, stableTraffic } = params
+  return {
+    nodes: [
+      createFlowNode("stable-route", 20, 65, names.stableRouteName, `${names.routeTypeLabel} stable`, "route"),
+      createFlowNode("stable-service", 410, 65, names.stableServiceName, `traffic=${stableTraffic}`, "service"),
+      createFlowNode("stable-workload", 800, 65, names.stableWorkloadName, `replicas=${stage.stableWorkloadReplicas}`, "workload"),
+      createFlowNode("stable-pods", 1190, 65, "stable Pods", `target=${stage.stablePods}, actual=${stage.actualStablePods ?? "-"}`, "pods"),
+    ],
+    edges: [
+      createFlowEdge("stable-route-to-service", "stable-route", "stable-service", stableTraffic, { tone: "stable" }),
+      createFlowEdge("stable-service-to-workload", "stable-service", "stable-workload", undefined, { tone: "stable" }),
+      createFlowEdge("stable-workload-to-pods", "stable-workload", "stable-pods", undefined, { tone: "stable" }),
+    ],
+  }
+}
 
-  if (hasCanaryWorkload) {
-    if (stage.canaryIngressEnabled) {
-      nodes.push(createFlowNode("canary-route", 20, 235, canaryRouteName, `${routeTypeLabel} canary`, "route"))
-    }
-    if (stage.canaryRouteEnabled || stage.canaryServiceEnabled) {
-      nodes.push(createFlowNode("canary-service", 290, 235, canaryServiceDisplay, `traffic=${canaryTraffic}`, "service"))
-    } else {
-      nodes.push(createFlowNode("canary-note", 290, 235, "No explicit canary route", `traffic=${canaryTraffic}`, "notice"))
-    }
-    nodes.push(
-      createFlowNode(
-        "canary-workload",
-        560,
-        235,
-        canaryWorkloadDisplay,
-        `replicas=${stage.useExtraCanaryDeployment ? stage.canaryWorkloadReplicas : stage.canaryPods}`,
-        "workload"
-      ),
-      createFlowNode("canary-pods", 830, 235, "canary Pods", `target=${stage.canaryPods}, actual=${stage.actualCanaryPods ?? "-"}`, "pods")
+function createCanaryEntryNode(params: Readonly<{
+  stage: MigrationStage
+  names: StageFlowResourceNames
+  canaryTraffic: string
+}>): Node {
+  const canaryServiceDisplay = params.stage.canaryServiceEnabled
+    ? params.names.canaryServiceName
+    : `${params.names.stableServiceName} (reused)`
+  if (params.stage.canaryRouteEnabled || params.stage.canaryServiceEnabled) {
+    return createFlowNode("canary-service", 410, 235, canaryServiceDisplay, `traffic=${params.canaryTraffic}`, "service")
+  }
+  return createFlowNode("canary-note", 410, 235, "No explicit canary route", `traffic=${params.canaryTraffic}`, "notice")
+}
+
+function createCanaryRoutingEdges(params: Readonly<{
+  stage: MigrationStage
+  canaryTraffic: string
+}>): Edge[] {
+  if (!params.stage.canaryRouteEnabled && !params.stage.canaryServiceEnabled) {
+    return [
+      createFlowEdge("stable-service-to-canary-workload", "stable-service", "canary-workload", "no explicit route", {
+        dashed: true,
+        tone: "neutral",
+      }),
+    ]
+  }
+
+  const edges: Edge[] = []
+  if (params.stage.canaryIngressEnabled) {
+    edges.push(createFlowEdge("canary-route-to-service", "canary-route", "canary-service", params.canaryTraffic, { tone: "canary" }))
+  } else if (params.stage.canaryRouteEnabled) {
+    edges.push(
+      createFlowEdge("stable-route-to-canary-service", "stable-route", "canary-service", params.canaryTraffic, {
+        dashed: !params.stage.canaryServiceEnabled,
+        tone: params.stage.canaryServiceEnabled ? "canary" : "neutral",
+      })
     )
+  } else {
+    edges.push(
+      createFlowEdge("stable-service-to-canary-service", "stable-service", "canary-service", params.canaryTraffic, {
+        dashed: true,
+        tone: "neutral",
+      })
+    )
+  }
+  edges.push(
+    createFlowEdge("canary-service-to-workload", "canary-service", "canary-workload", params.stage.canaryServiceEnabled ? undefined : "reused", {
+      tone: params.stage.canaryServiceEnabled ? "canary" : "neutral",
+    })
+  )
+  return edges
+}
 
-    if (stage.canaryRouteEnabled || stage.canaryServiceEnabled) {
-      if (stage.canaryIngressEnabled) {
-        edges.push(createFlowEdge("canary-route-to-service", "canary-route", "canary-service", canaryTraffic))
-      } else if (stage.canaryRouteEnabled) {
-        edges.push(createFlowEdge("stable-route-to-canary-service", "stable-route", "canary-service", canaryTraffic, !stage.canaryServiceEnabled))
-      } else {
-        edges.push(createFlowEdge("stable-service-to-canary-service", "stable-service", "canary-service", canaryTraffic, true))
-      }
-      edges.push(createFlowEdge("canary-service-to-workload", "canary-service", "canary-workload", stage.canaryServiceEnabled ? undefined : "reused"))
-    } else {
-      edges.push(createFlowEdge("stable-service-to-canary-workload", "stable-service", "canary-workload", "no explicit route", true))
-    }
-    edges.push(createFlowEdge("canary-workload-to-pods", "canary-workload", "canary-pods"))
+function appendCanaryLane(
+  graph: { nodes: Node[]; edges: Edge[] },
+  params: Readonly<{
+    stage: MigrationStage
+    names: StageFlowResourceNames
+    canaryTraffic: string
+  }>
+): void {
+  const hasCanaryWorkload = params.stage.useExtraCanaryDeployment || params.stage.canaryWorkloadReplicas > 0 || params.stage.canaryPods > 0
+  if (!hasCanaryWorkload) {
+    return
   }
 
-  if (!stage.canaryRouteEnabled && stage.canaryPods === 0) {
-    nodes.push(createFlowNode("route-off", 20, 235, "Canary route not created", "no matches / traffic=0", "notice"))
-    edges.push(createFlowEdge("stable-route-to-route-off", "stable-route", "route-off", undefined, true))
-  }
+  const canaryWorkloadDisplay = params.stage.useExtraCanaryDeployment
+    ? params.names.canaryWorkloadName
+    : `${params.names.stableWorkloadName} (shared)`
+  const canaryNodes: Node[] = [
+    ...(params.stage.canaryIngressEnabled
+      ? [createFlowNode("canary-route", 20, 235, params.names.canaryRouteName, `${params.names.routeTypeLabel} canary`, "route")]
+      : []),
+    createCanaryEntryNode(params),
+    createFlowNode(
+      "canary-workload",
+      800,
+      235,
+      canaryWorkloadDisplay,
+      `replicas=${params.stage.useExtraCanaryDeployment ? params.stage.canaryWorkloadReplicas : params.stage.canaryPods}`,
+      "workload"
+    ),
+    createFlowNode("canary-pods", 1190, 235, "canary Pods", `target=${params.stage.canaryPods}, actual=${params.stage.actualCanaryPods ?? "-"}`, "pods"),
+  ]
+  graph.nodes.push(...canaryNodes)
 
-  return { nodes, edges }
+  const canaryEdges = [
+    ...createCanaryRoutingEdges({ stage: params.stage, canaryTraffic: params.canaryTraffic }),
+    createFlowEdge("canary-workload-to-pods", "canary-workload", "canary-pods", undefined, { tone: "canary" }),
+  ]
+  graph.edges.push(...canaryEdges)
+}
+
+function appendRouteOffNotice(graph: { nodes: Node[]; edges: Edge[] }, stage: MigrationStage): void {
+  if (stage.canaryRouteEnabled || stage.canaryPods > 0) {
+    return
+  }
+  graph.nodes.push(createFlowNode("route-off", 410, 235, "Canary route not created", "no matches / traffic=0", "notice"))
+  graph.edges.push(
+    createFlowEdge("stable-route-to-route-off", "stable-route", "route-off", undefined, {
+      dashed: true,
+      tone: "neutral",
+    })
+  )
+}
+
+function resolveStageFlowDisplayNames(
+  stage: MigrationStage,
+  names: Pick<StageFlowResourceNames, "canaryRouteName" | "stableRouteName" | "canaryServiceName" | "stableServiceName" | "canaryWorkloadName" | "stableWorkloadName">
+): {
+  canaryRouteSource: string
+  canaryServiceDisplay: string
+  canaryWorkloadDisplay: string
+} {
+  const canaryRouteSource = stage.canaryIngressEnabled ? names.canaryRouteName : names.stableRouteName
+  const canaryServiceDisplay = stage.canaryServiceEnabled ? names.canaryServiceName : `${names.stableServiceName} (reused)`
+  const canaryWorkloadDisplay = stage.useExtraCanaryDeployment ? names.canaryWorkloadName : `${names.stableWorkloadName} (shared)`
+  return {
+    canaryRouteSource,
+    canaryServiceDisplay,
+    canaryWorkloadDisplay,
+  }
+}
+
+export function buildStageFlowGraph({
+  stage,
+  stableServiceName,
+  canaryServiceName,
+  stableRouteName,
+  canaryRouteName,
+  routeTypeLabel,
+  stableWorkloadName,
+  canaryWorkloadName,
+}: Readonly<StageFlowGraphParams>): { nodes: Node[]; edges: Edge[] } {
+  const implicitCanaryTraffic = calculateImplicitCanaryTraffic(stage)
+  const matchRuleDisplay = stage.matchRuleSummary ?? "headers/query"
+  const { stableTraffic, canaryTraffic } = resolveTrafficLabels(stage, implicitCanaryTraffic, matchRuleDisplay, "flow")
+  const names: StageFlowResourceNames = {
+    stableServiceName,
+    canaryServiceName,
+    stableRouteName,
+    canaryRouteName,
+    routeTypeLabel,
+    stableWorkloadName,
+    canaryWorkloadName,
+  }
+  const graph = buildStableLane({ stage, names, stableTraffic })
+  appendCanaryLane(graph, { stage, names, canaryTraffic })
+  appendRouteOffNotice(graph, stage)
+  return graph
 }
 
 function StageFlow({
@@ -1056,13 +1552,21 @@ function StageFlow({
   stableWorkloadName: string
   canaryWorkloadName: string
 }>) {
+  const edgeTypes = useMemo(() => ({ topologyEdge: TopologyEdge }), [])
+
   return (
     <div className="space-y-4 rounded-md border bg-slate-50/40 p-3">
       {stages.map((stage, index) => {
         const style = STATUS_STYLE[stage.status]
-        const canaryRouteSource = stage.canaryIngressEnabled ? canaryRouteName : stableRouteName
-        const canaryServiceDisplay = stage.canaryServiceEnabled ? canaryServiceName : `${stableServiceName} (reused)`
-        const { nodes, edges } = buildStageFlowGraph(
+        const { canaryRouteSource, canaryServiceDisplay, canaryWorkloadDisplay } = resolveStageFlowDisplayNames(stage, {
+          canaryRouteName,
+          stableRouteName,
+          canaryServiceName,
+          stableServiceName,
+          canaryWorkloadName,
+          stableWorkloadName,
+        })
+        const { nodes, edges } = buildStageFlowGraph({
           stage,
           stableServiceName,
           canaryServiceName,
@@ -1070,8 +1574,8 @@ function StageFlow({
           canaryRouteName,
           routeTypeLabel,
           stableWorkloadName,
-          canaryWorkloadName
-        )
+          canaryWorkloadName,
+        })
         return (
           <div key={`stage-flow-${stage.id}`} className={cn("rounded-xl border bg-white p-3", style.border)}>
             <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -1087,6 +1591,7 @@ function StageFlow({
                 <ReactFlow
                   nodes={nodes}
                   edges={edges}
+                  edgeTypes={edgeTypes}
                   fitView
                   fitViewOptions={{ padding: 0.12 }}
                   minZoom={0.5}
@@ -1117,7 +1622,7 @@ function StageFlow({
                 <p>{`stable Service: ${stableServiceName}`}</p>
                 <p>{`canary Service: ${stage.canaryServiceEnabled ? canaryServiceDisplay : "not created"}`}</p>
                 <p>{`stable Workload: ${stableWorkloadName}`}</p>
-                <p>{`canary Workload: ${stage.useExtraCanaryDeployment ? canaryWorkloadName : `${stableWorkloadName} (shared)`}`}</p>
+                <p>{`canary Workload: ${canaryWorkloadDisplay}`}</p>
               </div>
             </div>
 
@@ -1147,10 +1652,10 @@ export function RolloutResourceTopologyDiagram({
   const [viewMode, setViewMode] = useState<TopologyViewMode>("cards")
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (globalThis.window === undefined) {
       return
     }
-    const url = new URL(window.location.href)
+    const url = new URL(globalThis.window.location.href)
     url.searchParams.set("topologyOpen", expanded ? "1" : "0")
     if (viewMode === "cards") {
       url.searchParams.delete("topologyView")
@@ -1158,9 +1663,9 @@ export function RolloutResourceTopologyDiagram({
       url.searchParams.set("topologyView", viewMode)
     }
     const next = `${url.pathname}${url.search}${url.hash}`
-    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    const current = `${globalThis.window.location.pathname}${globalThis.window.location.search}${globalThis.window.location.hash}`
     if (next !== current) {
-      window.history.replaceState(window.history.state, "", next)
+      globalThis.window.history.replaceState(globalThis.window.history.state, "", next)
     }
   }, [expanded, viewMode])
 
