@@ -12,6 +12,7 @@ import {
   Star,
   AlertTriangle,
   Keyboard,
+  Route,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -386,6 +387,12 @@ export function RolloutsPage() {
               <p className="text-sm text-muted-foreground">Manage your OpenKruise rollout deployments</p>
             </div>
             <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" asChild>
+                <Link href="/rollouts/explainer">
+                  <Route className="h-3.5 w-3.5" />
+                  流程解读
+                </Link>
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
