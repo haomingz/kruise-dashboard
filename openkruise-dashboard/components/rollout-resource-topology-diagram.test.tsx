@@ -1,8 +1,13 @@
 import { fireEvent, render, screen, within } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import { RolloutResourceTopologyDiagram, buildStageFlowGraph } from "./rollout-resource-topology-diagram"
 
 describe("RolloutResourceTopologyDiagram", () => {
+  beforeEach(() => {
+    // 每个测试前重置 URL，避免 URL 状态在测试间污染
+    window.history.replaceState(null, "", "/")
+  })
+
   it("renders collapsed by default", () => {
     render(<RolloutResourceTopologyDiagram strategy="canary" />)
 

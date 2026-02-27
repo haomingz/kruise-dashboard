@@ -1,7 +1,25 @@
 "use client"
 
-import { type ReactNode, useMemo, useState } from "react"
-import { ChevronDown } from "lucide-react"
+import { type ComponentType, type ReactNode, useMemo, useState } from "react"
+import {
+  Activity,
+  Ban,
+  CheckCircle2,
+  ChevronDown,
+  CirclePause,
+  Gauge,
+  Repeat,
+  RefreshCw,
+  Rocket,
+  Route,
+  Scale,
+  Shield,
+  Undo2,
+  User,
+  Watch,
+  Webhook,
+  Workflow,
+} from "lucide-react"
 import {
   Background,
   Controls,
@@ -11,10 +29,11 @@ import {
   type Edge,
   type Node,
 } from "@xyflow/react"
+import { FlowFullscreenButton } from "@/components/flow-fullscreen-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import type { DiagramModel, DiagramNode, DiagramNodeStatus } from "@/lib/rollout-explainer-diagram"
+import type { DiagramModel, DiagramNode, DiagramNodeIcon, DiagramNodeStatus } from "@/lib/rollout-explainer-diagram"
 import { cn } from "@/lib/utils"
 
 type StatusPalette = {
@@ -72,6 +91,24 @@ const STATUS_LABEL: Record<DiagramNodeStatus, string> = {
 }
 
 const COMPACT_SUBLABEL_NODE_IDS = new Set(["step-init", "step-upgrade", "step-traffic-routing", "step-metrics-analysis", "step-paused", "step-ready", "completed", "ab-match-routing", "global-paused", "disabled"])
+
+const ICON_MAP: Record<DiagramNodeIcon, ComponentType<{ className?: string; size?: number; color?: string }>> = {
+  workflow: Workflow,
+  rocket: Rocket,
+  route: Route,
+  chart: Gauge,
+  pause: CirclePause,
+  check: CheckCircle2,
+  shield: Shield,
+  ban: Ban,
+  user: User,
+  webhook: Webhook,
+  watch: Watch,
+  refresh: RefreshCw,
+  rollback: Undo2,
+  repeat: Repeat,
+  scale: Scale,
+}
 
 function truncateText(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
@@ -153,13 +190,27 @@ function buildFlowNodeLabel(node: DiagramNode, palette: StatusPalette, isCompact
   const titleSizeClass = isCompact ? "text-[11px]" : "text-xs"
   const subLabelSizeClass = isCompact ? "text-[10px]" : "text-[11px]"
   const tooltipText = [node.label, node.subLabel, ...(node.detailLines ?? [])].filter(Boolean).join(" | ")
+  const Icon = ICON_MAP[node.icon]
+  const iconSize = isCompact ? 11 : 13
 
   return (
     <div data-node-id={node.id} data-node-status={node.status} title={tooltipText} className={cn(spacingClass)}>
       <div className="flex flex-wrap items-center justify-between gap-1">
-        <p className={cn("font-semibold", titleSizeClass)} style={{ color: palette.text }}>
-          {node.label}
-        </p>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span
+            className="inline-flex shrink-0 items-center justify-center rounded"
+            style={{
+              width: isCompact ? 18 : 20,
+              height: isCompact ? 18 : 20,
+              background: palette.chipBg,
+            }}
+          >
+            <Icon size={iconSize} color={palette.nodeStroke} />
+          </span>
+          <p className={cn("truncate font-semibold", titleSizeClass)} style={{ color: palette.text }}>
+            {node.label}
+          </p>
+        </div>
         {renderStatusChip(node.status, palette, staticMode)}
       </div>
       {showSubLabel ? (
@@ -180,7 +231,7 @@ function buildFlowNode(node: DiagramNode, isCompact: boolean, staticMode: boolea
     position: { x: node.x, y: node.y },
     sourcePosition: Position.Right,
     targetPosition: Position.Left,
-    draggable: false,
+    draggable: true,
     selectable: false,
     style: {
       width: dims.width,
@@ -251,7 +302,6 @@ export function RolloutStateMachineReactFlow({
     [displayNodes]
   )
   const fitViewOptions = useMemo(() => ({ padding: 0.12 }), [])
-  const proOptions = useMemo(() => ({ hideAttribution: true }), [])
 
   const nodes = useMemo<Node[]>(
     () => displayNodes.map((node) => buildFlowNode(node, isCompact, staticMode)),
@@ -333,7 +383,7 @@ export function RolloutStateMachineReactFlow({
             {nodes.length === 0 ? (
               <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">当前没有可展示的流程图数据。</div>
             ) : (
-              <div className="rounded-xl border border-slate-200 bg-linear-to-b from-slate-50 to-slate-100/70 p-2 shadow-inner">
+              <div className="relative rounded-xl border border-slate-200 bg-linear-to-b from-slate-50 to-slate-100/70 p-2 shadow-inner">
                 <div className="h-[360px] w-full sm:h-[430px] lg:h-[500px]" data-testid={`state-machine-reactflow-${model.kind}`}>
                   <ReactFlow
                     nodes={nodes}
@@ -342,22 +392,24 @@ export function RolloutStateMachineReactFlow({
                     fitViewOptions={fitViewOptions}
                     minZoom={0.45}
                     maxZoom={1.8}
-                    nodesDraggable={false}
+                    nodesDraggable
                     nodesFocusable={!staticMode}
                     nodesConnectable={false}
                     edgesFocusable={!staticMode}
                     elementsSelectable={!staticMode}
-                    panOnDrag={!staticMode}
-                    panOnScroll={!staticMode}
-                    zoomOnScroll={!staticMode}
-                    zoomOnPinch={!staticMode}
+                    panOnDrag
+                    panOnScroll
+                    zoomOnScroll
+                    zoomOnPinch
                     zoomOnDoubleClick={!staticMode}
                     onlyRenderVisibleElements={nodes.length > 80}
-                    proOptions={proOptions}
                   >
                     <Background gap={18} size={1} color="#cbd5e1" />
                     <Controls position="bottom-right" showInteractive={!staticMode} />
                   </ReactFlow>
+                </div>
+                <div className="absolute right-3 top-3 z-10">
+                  <FlowFullscreenButton title={title} nodes={nodes} edges={edges} fitViewOptions={fitViewOptions} />
                 </div>
               </div>
             )}

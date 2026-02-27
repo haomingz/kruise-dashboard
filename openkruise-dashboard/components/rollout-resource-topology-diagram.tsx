@@ -1,13 +1,21 @@
 "use client"
 
-import { type ReactNode, useEffect, useMemo, useState } from "react"
+import { type ComponentType, type ReactNode, useEffect, useMemo, useState } from "react"
 import {
   ArrowRight,
-  CheckCircle2,
+  Boxes,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Globe,
+  Info,
+  Layers,
   LayoutGrid,
-  Workflow,
+  Loader2,
+  Maximize2,
   Route,
+  Server,
+  Workflow,
 } from "lucide-react"
 import {
   Background,
@@ -26,6 +34,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import type { ExplainerStrategy, LiveRolloutSnapshot } from "@/lib/rollout-explainer"
 import type { RolloutStep, TransformedRolloutDetail } from "@/lib/rollout-utils"
 import { cn } from "@/lib/utils"
@@ -1100,7 +1109,7 @@ function StageCard({
           {stage.order}
         </span>
         <h4 className="text-sm font-semibold text-slate-900">{stage.title}</h4>
-        {stage.status === "current" && <CheckCircle2 className="h-4 w-4 text-blue-600" />}
+        {stage.status === "current" && <Loader2 className="h-4 w-4 animate-spin text-blue-600" />}
       </div>
 
       <p className="mb-2 text-xs text-slate-700">{stage.summary}</p>
@@ -1168,6 +1177,34 @@ function StageCard({
   )
 }
 
+const FLOW_NODE_TONES: Record<FlowNodeTone, {
+  border: string; bg: string; titleColor: string
+  iconBg: string; iconColor: string
+  typeBg: string; typeColor: string
+}> = {
+  route:    { border: "#06b6d4", bg: "#ecfeff", titleColor: "#0e7490", iconBg: "#cffafe", iconColor: "#0e7490", typeBg: "#cffafe", typeColor: "#0e7490" },
+  service:  { border: "#6366f1", bg: "#eef2ff", titleColor: "#3730a3", iconBg: "#e0e7ff", iconColor: "#4338ca", typeBg: "#e0e7ff", typeColor: "#4338ca" },
+  workload: { border: "#38bdf8", bg: "#eff6ff", titleColor: "#0369a1", iconBg: "#e0f2fe", iconColor: "#0284c7", typeBg: "#e0f2fe", typeColor: "#0284c7" },
+  pods:     { border: "#22c55e", bg: "#ecfdf5", titleColor: "#166534", iconBg: "#dcfce7", iconColor: "#15803d", typeBg: "#dcfce7", typeColor: "#15803d" },
+  notice:   { border: "#a3a3a3", bg: "#f8fafc", titleColor: "#334155", iconBg: "#e2e8f0", iconColor: "#475569", typeBg: "#f1f5f9", typeColor: "#64748b" },
+}
+
+const FLOW_NODE_ICONS: Record<FlowNodeTone, ComponentType<{ className?: string; size?: number; color?: string }>> = {
+  route:    Globe,
+  service:  Layers,
+  workload: Server,
+  pods:     Boxes,
+  notice:   Info,
+}
+
+const FLOW_NODE_TYPE_LABELS: Record<FlowNodeTone, string> = {
+  route:    "Route",
+  service:  "Service",
+  workload: "Workload",
+  pods:     "Pods",
+  notice:   "Notice",
+}
+
 function createFlowNode(
   id: string,
   x: number,
@@ -1176,14 +1213,10 @@ function createFlowNode(
   subtitle: string,
   tone: FlowNodeTone
 ): Node<{ label: ReactNode; title: string; subtitle: string }> {
-  const tones: Record<FlowNodeTone, { border: string; bg: string; title: string }> = {
-    route: { border: "#06b6d4", bg: "#ecfeff", title: "#0e7490" },
-    service: { border: "#6366f1", bg: "#eef2ff", title: "#3730a3" },
-    workload: { border: "#38bdf8", bg: "#eff6ff", title: "#0369a1" },
-    pods: { border: "#22c55e", bg: "#ecfdf5", title: "#166534" },
-    notice: { border: "#a3a3a3", bg: "#f8fafc", title: "#334155" },
-  }
-  const color = tones[tone]
+  const color = FLOW_NODE_TONES[tone]
+  const Icon = FLOW_NODE_ICONS[tone]
+  const typeLabel = FLOW_NODE_TYPE_LABELS[tone]
+
   return {
     id,
     position: { x, y },
@@ -1191,21 +1224,52 @@ function createFlowNode(
       title,
       subtitle,
       label: (
-        <div className="leading-snug">
-          <p className="text-[14px] font-semibold" style={{ color: color.title }}>{title}</p>
-          <p className="mt-1 text-[13px] text-slate-600">{subtitle}</p>
+        <div>
+          {/* 图标徽章 + 资源类型标签 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7 }}>
+            <div style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 22,
+              height: 22,
+              borderRadius: 6,
+              background: color.iconBg,
+              flexShrink: 0,
+            }}>
+              <Icon size={13} color={color.iconColor} />
+            </div>
+            <span style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: color.typeColor,
+              background: color.typeBg,
+              borderRadius: 4,
+              padding: "1px 6px",
+              letterSpacing: "0.03em",
+            }}>
+              {typeLabel}
+            </span>
+          </div>
+          {/* 资源名称 */}
+          <p style={{ fontSize: 13, fontWeight: 700, color: color.titleColor, lineHeight: 1.3, marginBottom: 3 }}>
+            {title}
+          </p>
+          {/* 副标题 */}
+          <p style={{ fontSize: 11, color: "#64748b", lineHeight: 1.3 }}>
+            {subtitle}
+          </p>
         </div>
       ),
     },
     style: {
       width: 256,
-      minHeight: 82,
-      borderRadius: 11,
+      minHeight: 96,
+      borderRadius: 12,
       border: `2px solid ${color.border}`,
       background: color.bg,
-      padding: 10,
-      fontSize: 14,
-      boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+      padding: "10px 12px",
+      boxShadow: "0 2px 6px rgba(0,0,0,0.08)",
     },
     sourcePosition: Position.Right,
     targetPosition: Position.Left,
@@ -1219,12 +1283,12 @@ function createFlowNode(
 
 function resolveEdgeStroke(tone: TopologyEdgeTone | undefined): string {
   if (tone === "stable") {
-    return "#334155"
+    return "#1d4ed8"  // blue-700：稳定路径
   }
   if (tone === "canary") {
-    return "#475569"
+    return "#d97706"  // amber-600：canary 路径
   }
-  return "#64748b"
+  return "#94a3b8"  // slate-400：中性/虚线
 }
 
 function estimateLabelLineCount(text: string, charsPerLine = 27): number {
@@ -1533,6 +1597,53 @@ export function buildStageFlowGraph({
   return graph
 }
 
+function StageFlowStepPicker({
+  stages,
+  currentIndex,
+  onPrev,
+  onNext,
+  onSelect,
+}: Readonly<{
+  stages: MigrationStage[]
+  currentIndex: number
+  onPrev: () => void
+  onNext: () => void
+  onSelect: (i: number) => void
+}>) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={currentIndex === 0} onClick={onPrev} aria-label="上一步">
+        <ChevronLeft className="h-4 w-4" />
+      </Button>
+      {stages.map((s, index) => {
+        const s_style = STATUS_STYLE[s.status]
+        return (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => onSelect(index)}
+            className={cn(
+              "inline-flex h-7 min-w-[28px] items-center justify-center rounded-full px-2 text-xs font-semibold text-white transition-opacity",
+              s_style.marker,
+              index === currentIndex ? "ring-2 ring-offset-1 ring-blue-400" : "opacity-60 hover:opacity-90"
+            )}
+            aria-current={index === currentIndex ? "step" : undefined}
+            title={s.title}
+          >
+            {s.order}
+          </button>
+        )
+      })}
+      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={currentIndex === stages.length - 1} onClick={onNext} aria-label="下一步">
+        <ChevronRight className="h-4 w-4" />
+      </Button>
+      <span className="ml-1 text-xs text-slate-500">
+        {currentIndex + 1} / {stages.length}
+      </span>
+    </div>
+  )
+}
+
 function StageFlow({
   stages,
   stableServiceName,
@@ -1553,85 +1664,192 @@ function StageFlow({
   canaryWorkloadName: string
 }>) {
   const edgeTypes = useMemo(() => ({ topologyEdge: TopologyEdge }), [])
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const [fullscreenOpen, setFullscreenOpen] = useState(false)
+  const [fullscreenIndex, setFullscreenIndex] = useState(0)
+
+  const clampedIndex = Math.max(0, Math.min(selectedIndex, stages.length - 1))
+  const clampedFullscreenIndex = Math.max(0, Math.min(fullscreenIndex, stages.length - 1))
+  const stage = stages[clampedIndex]
+  const fullscreenStage = stages[clampedFullscreenIndex]
+
+  const { canaryRouteSource, canaryServiceDisplay, canaryWorkloadDisplay } = useMemo(
+    () =>
+      resolveStageFlowDisplayNames(stage, {
+        canaryRouteName,
+        stableRouteName,
+        canaryServiceName,
+        stableServiceName,
+        canaryWorkloadName,
+        stableWorkloadName,
+      }),
+    [stage, canaryRouteName, stableRouteName, canaryServiceName, stableServiceName, canaryWorkloadName, stableWorkloadName]
+  )
+
+  const { nodes, edges } = useMemo(
+    () =>
+      buildStageFlowGraph({
+        stage,
+        stableServiceName,
+        canaryServiceName,
+        stableRouteName,
+        canaryRouteName,
+        routeTypeLabel,
+        stableWorkloadName,
+        canaryWorkloadName,
+      }),
+    [stage, stableServiceName, canaryServiceName, stableRouteName, canaryRouteName, routeTypeLabel, stableWorkloadName, canaryWorkloadName]
+  )
+
+  const { nodes: fullscreenNodes, edges: fullscreenEdges } = useMemo(
+    () =>
+      buildStageFlowGraph({
+        stage: fullscreenStage,
+        stableServiceName,
+        canaryServiceName,
+        stableRouteName,
+        canaryRouteName,
+        routeTypeLabel,
+        stableWorkloadName,
+        canaryWorkloadName,
+      }),
+    [fullscreenStage, stableServiceName, canaryServiceName, stableRouteName, canaryRouteName, routeTypeLabel, stableWorkloadName, canaryWorkloadName]
+  )
+
+  if (!stage) {
+    return null
+  }
+
+  const style = STATUS_STYLE[stage.status]
+  const fsStyle = fullscreenStage ? STATUS_STYLE[fullscreenStage.status] : style
 
   return (
-    <div className="space-y-4 rounded-md border bg-slate-50/40 p-3">
-      {stages.map((stage, index) => {
-        const style = STATUS_STYLE[stage.status]
-        const { canaryRouteSource, canaryServiceDisplay, canaryWorkloadDisplay } = resolveStageFlowDisplayNames(stage, {
-          canaryRouteName,
-          stableRouteName,
-          canaryServiceName,
-          stableServiceName,
-          canaryWorkloadName,
-          stableWorkloadName,
-        })
-        const { nodes, edges } = buildStageFlowGraph({
-          stage,
-          stableServiceName,
-          canaryServiceName,
-          stableRouteName,
-          canaryRouteName,
-          routeTypeLabel,
-          stableWorkloadName,
-          canaryWorkloadName,
-        })
-        return (
-          <div key={`stage-flow-${stage.id}`} className={cn("rounded-xl border bg-white p-3", style.border)}>
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <span className={cn("inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold text-white", style.marker)}>
-                {stage.order}
-              </span>
-              <h4 className="text-base font-semibold text-slate-900">{stage.title}</h4>
-              <Badge variant="outline" className="text-[11px]">{stage.status}</Badge>
-            </div>
+    <div className="space-y-3 rounded-md border bg-slate-50/40 p-3">
+      {/* Stage 选择器 */}
+      <StageFlowStepPicker
+        stages={stages}
+        currentIndex={clampedIndex}
+        onPrev={() => setSelectedIndex((i) => Math.max(0, i - 1))}
+        onNext={() => setSelectedIndex((i) => Math.min(stages.length - 1, i + 1))}
+        onSelect={(i) => setSelectedIndex(i)}
+      />
 
-            <div className="mb-2 rounded-md border bg-white p-1">
-              <div className="h-[430px] w-full" data-testid={`topology-reactflow-step-${stage.order}`}>
-                <ReactFlow
-                  nodes={nodes}
-                  edges={edges}
-                  edgeTypes={edgeTypes}
-                  fitView
-                  fitViewOptions={{ padding: 0.12 }}
-                  minZoom={0.5}
-                  maxZoom={1.6}
-                  nodesDraggable
-                  nodesConnectable={false}
-                  elementsSelectable={false}
-                  proOptions={{ hideAttribution: true }}
-                >
-                  <Background gap={16} size={1} color="#e2e8f0" />
-                  <Controls position="bottom-right" />
-                </ReactFlow>
-              </div>
-            </div>
+      {/* 当前 Stage */}
+      <div className={cn("rounded-xl border bg-white p-3", style.border)}>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <span className={cn("inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold text-white", style.marker)}>
+            {stage.order}
+          </span>
+          <h4 className="text-base font-semibold text-slate-900">{stage.title}</h4>
+          <Badge variant="outline" className="text-[11px]">{stage.status}</Badge>
+        </div>
 
-            <div className="mt-2 grid gap-2 sm:grid-cols-[1.7fr_1fr]">
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
-                <p className="font-mono text-[11px] text-slate-700">{stage.stepSpecSummary}</p>
-                {stage.ops.slice(0, 5).map((op) => (
-                  <p key={`${stage.id}-op-${op}`} className="text-[11px] leading-relaxed text-slate-700">
-                    - {op}
-                  </p>
-                ))}
-              </div>
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-[11px] text-slate-700">
-                <p>{`stable Route: ${stableRouteName}`}</p>
-                <p>{`canary Route: ${stage.canaryRouteEnabled ? canaryRouteSource : "not created"}`}</p>
-                <p>{`stable Service: ${stableServiceName}`}</p>
-                <p>{`canary Service: ${stage.canaryServiceEnabled ? canaryServiceDisplay : "not created"}`}</p>
-                <p>{`stable Workload: ${stableWorkloadName}`}</p>
-                <p>{`canary Workload: ${canaryWorkloadDisplay}`}</p>
-              </div>
-            </div>
+        <div className="relative mb-2 rounded-md border bg-white p-1">
+          <div className="h-[430px] w-full" data-testid={`topology-reactflow-step-${stage.order}`}>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              edgeTypes={edgeTypes}
+              fitView
+              fitViewOptions={{ padding: 0.12 }}
+              minZoom={0.5}
+              maxZoom={1.6}
+              nodesDraggable
+              nodesConnectable={false}
+              elementsSelectable={false}
+            >
+              <Background gap={16} size={1} color="#e2e8f0" />
+              <Controls position="bottom-right" />
+            </ReactFlow>
+          </div>
+          <div className="absolute right-3 top-3 z-10">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={() => {
+                setFullscreenIndex(clampedIndex)
+                setFullscreenOpen(true)
+              }}
+              aria-label="全屏查看流程图"
+              title="全屏查看"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
 
-            {index < stages.length - 1 && (
-              <div className="mt-2 text-center text-xs text-slate-500">↓ next step</div>
+        <div className="mt-2 grid gap-2 sm:grid-cols-[1.7fr_1fr]">
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
+            <p className="font-mono text-[11px] text-slate-700">{stage.stepSpecSummary}</p>
+            {stage.ops.slice(0, 5).map((op) => (
+              <p key={`${stage.id}-op-${op}`} className="text-[11px] leading-relaxed text-slate-700">
+                - {op}
+              </p>
+            ))}
+            {stage.ops.length > 5 && (
+              <p className="mt-0.5 text-[11px] text-slate-400">… 另 {stage.ops.length - 5} 项操作</p>
             )}
           </div>
-        )
-      })}
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-2 text-[11px] text-slate-700">
+            <p>{`stable Route: ${stableRouteName}`}</p>
+            <p>{`canary Route: ${stage.canaryRouteEnabled ? canaryRouteSource : "not created"}`}</p>
+            <p>{`stable Service: ${stableServiceName}`}</p>
+            <p>{`canary Service: ${stage.canaryServiceEnabled ? canaryServiceDisplay : "not created"}`}</p>
+            <p>{`stable Workload: ${stableWorkloadName}`}</p>
+            <p>{`canary Workload: ${canaryWorkloadDisplay}`}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* 全屏 Dialog */}
+      <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
+        <DialogContent className="flex h-[92vh] w-full max-w-[94vw] flex-col gap-0 overflow-hidden p-0 sm:rounded-xl">
+          <div className="flex shrink-0 items-center justify-between border-b px-5 py-3 pr-14">
+            <DialogTitle className="text-base font-semibold">K8s 资源拓扑图（全屏）</DialogTitle>
+            {fullscreenStage && (
+              <div className="mr-2 flex items-center gap-2">
+                <span className={cn("inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-semibold text-white", fsStyle.marker)}>
+                  {fullscreenStage.order}
+                </span>
+                <span className="text-sm font-medium text-slate-700">{fullscreenStage.title}</span>
+                <Badge variant="outline" className="text-[10px]">{fullscreenStage.status}</Badge>
+              </div>
+            )}
+          </div>
+          <div className="shrink-0 border-b bg-slate-50/70 px-4 py-2">
+            <StageFlowStepPicker
+              stages={stages}
+              currentIndex={clampedFullscreenIndex}
+              onPrev={() => setFullscreenIndex((i) => Math.max(0, i - 1))}
+              onNext={() => setFullscreenIndex((i) => Math.min(stages.length - 1, i + 1))}
+              onSelect={(i) => setFullscreenIndex(i)}
+            />
+          </div>
+          <div className="min-h-0 flex-1">
+            <ReactFlow
+              key={fullscreenStage?.id}
+              nodes={fullscreenNodes}
+              edges={fullscreenEdges}
+              edgeTypes={edgeTypes}
+              fitView
+              fitViewOptions={{ padding: 0.12 }}
+              minZoom={0.3}
+              maxZoom={2.5}
+              nodesDraggable
+              nodesConnectable={false}
+              panOnDrag
+              panOnScroll
+              zoomOnScroll
+              zoomOnPinch
+              zoomOnDoubleClick={false}
+            >
+              <Background gap={16} size={1} color="#e2e8f0" />
+              <Controls position="bottom-right" />
+            </ReactFlow>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -1648,8 +1866,14 @@ export function RolloutResourceTopologyDiagram({
   sourceHint,
   defaultExpanded = false,
 }: Readonly<RolloutResourceTopologyDiagramProps>) {
-  const [expanded, setExpanded] = useState(defaultExpanded)
-  const [viewMode, setViewMode] = useState<TopologyViewMode>("cards")
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    if (typeof globalThis.window === "undefined") return defaultExpanded
+    return new URLSearchParams(globalThis.window.location.search).get("topologyOpen") === "1" || defaultExpanded
+  })
+  const [viewMode, setViewMode] = useState<TopologyViewMode>(() => {
+    if (typeof globalThis.window === "undefined") return "cards"
+    return new URLSearchParams(globalThis.window.location.search).get("topologyView") === "flow" ? "flow" : "cards"
+  })
 
   useEffect(() => {
     if (globalThis.window === undefined) {

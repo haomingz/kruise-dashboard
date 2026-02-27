@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react"
 import {
   Activity,
   ArrowLeft,
@@ -63,6 +63,14 @@ import {
 import { transformRolloutDetail, transformRolloutList } from "@/lib/rollout-utils"
 import { config } from "@/lib/config"
 import { cn } from "@/lib/utils"
+import { dump } from "js-yaml"
+import { getSingletonHighlighter } from "shiki"
+
+// 静态图模型不依赖任何运行时状态，提升为模块常量避免每次 mount 重新构建
+const CANARY_DIAGRAM_MODEL = buildCanaryDiagram(null)
+const AB_TEST_DIAGRAM_MODEL = buildABTestDiagram(null)
+const TRIGGER_DIAGRAM_MODEL = buildTriggerDiagram()
+const EDGE_CASE_DIAGRAM_MODEL = buildEdgeCaseDiagram()
 
 function rolloutKey(rollout: { namespace: string; name: string }): string {
   return `${rollout.namespace}/${rollout.name}`
@@ -77,116 +85,69 @@ function resolveTabValue(value: string | null | undefined): ExplainerTabValue {
   return "canary"
 }
 
-function isPrimitive(value: unknown): value is string | number | boolean | null {
-  return value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean"
-}
-
-function formatYamlScalar(value: string | number | boolean | null): string {
-  if (value === null) {
-    return "null"
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value)
-  }
-  if (value.length === 0) {
-    return '""'
-  }
-  if (/^[A-Za-z0-9_./:@%-]+$/.test(value)) {
-    return value
-  }
-  return JSON.stringify(value)
-}
-
-function toYaml(value: unknown, indent = 0): string {
-  const pad = " ".repeat(indent)
-
-  if (isPrimitive(value)) {
-    return `${pad}${formatYamlScalar(value)}`
-  }
-
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return `${pad}[]`
-    }
-    return value
-      .map((item) => {
-        if (isPrimitive(item)) {
-          return `${pad}- ${formatYamlScalar(item)}`
-        }
-        return `${pad}-\n${toYaml(item, indent + 2)}`
-      })
-      .join("\n")
-  }
-
-  if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
-    if (entries.length === 0) {
-      return `${pad}{}`
-    }
-    return entries
-      .map(([key, item]) => {
-        const normalizedKey = /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key)
-        if (isPrimitive(item)) {
-          return `${pad}${normalizedKey}: ${formatYamlScalar(item)}`
-        }
-        return `${pad}${normalizedKey}:\n${toYaml(item, indent + 2)}`
-      })
-      .join("\n")
-  }
-
-  return `${pad}${String(value)}`
-}
-
-function renderYamlLine(line: string): ReactNode {
-  if (line.trim().length === 0) {
-    return <span className="whitespace-pre text-slate-500"> </span>
-  }
-
-  if (line.trimStart().startsWith("#")) {
-    return <span className="whitespace-pre text-slate-500">{line}</span>
-  }
-
-  const keyMatch = line.match(/^(\s*(?:-\s+)?)("?[^":]+"?|[A-Za-z0-9_.\/-]+)(:\s*)(.*)$/)
-  if (!keyMatch) {
-    return <span className="whitespace-pre text-slate-200">{line}</span>
-  }
-
-  const [, prefix, key, colon, rawValue] = keyMatch
-  const value = rawValue ?? ""
-  let valueClass = "text-slate-200"
-  const normalized = value.trim()
-  if (normalized.length === 0) {
-    valueClass = "text-slate-500"
-  } else if (/^(true|false|null)$/i.test(normalized)) {
-    valueClass = "text-fuchsia-300"
-  } else if (/^-?\d+(\.\d+)?%?$/.test(normalized)) {
-    valueClass = "text-amber-300"
-  } else if (/^".*"$|^'.*'$/.test(normalized)) {
-    valueClass = "text-emerald-300"
-  }
-
-  return (
-    <span className="whitespace-pre">
-      <span className="text-slate-300">{prefix}</span>
-      <span className="text-cyan-300">{key}</span>
-      <span className="text-slate-400">{colon}</span>
-      <span className={valueClass}>{value}</span>
-    </span>
-  )
-}
-
 function YamlHighlightedBlock({ yaml }: Readonly<{ yaml: string }>) {
-  const lines = yaml.split("\n")
+  const [html, setHtml] = useState("")
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [atTop, setAtTop] = useState(true)
+  const [atBottom, setAtBottom] = useState(true)
+
+  const updateFades = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    setAtTop(el.scrollTop <= 2)
+    setAtBottom(el.scrollTop + el.clientHeight >= el.scrollHeight - 2)
+  }, [])
+
+  useEffect(() => {
+    if (!yaml) {
+      setHtml("")
+      return
+    }
+    let cancelled = false
+    getSingletonHighlighter({ themes: ["github-dark"], langs: ["yaml"] }).then((hl) => {
+      if (cancelled) return
+      setHtml(hl.codeToHtml(yaml, { lang: "yaml", theme: "github-dark" }))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [yaml])
+
+  // 内容变化后重新计算渐变蒙层显隐
+  useEffect(() => {
+    updateFades()
+  }, [html, updateFades])
+
   return (
-    <pre className="max-h-[380px] overflow-auto rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5">
-      <code className="block font-mono text-[10px] leading-4">
-        {lines.map((line, index) => (
-          <div key={`yaml-${index}`} className="min-h-4">
-            {renderYamlLine(line)}
-          </div>
-        ))}
-      </code>
-    </pre>
+    <div className="relative overflow-hidden rounded-md border border-slate-700">
+      <div
+        ref={scrollRef}
+        onScroll={updateFades}
+        className="no-scrollbar max-h-[380px] overflow-auto"
+      >
+        {html ? (
+          <div
+            className="[&>pre]:m-0! [&>pre]:px-3 [&>pre]:py-2 [&_code]:font-mono [&_code]:text-[11px] [&_code]:leading-5"
+            // shiki 生成的 HTML 来自受控的 YAML 序列化输出，内容安全
+            // eslint-disable-next-line react/no-danger
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        ) : (
+          <pre className="m-0 bg-[#0d1117] px-3 py-2 font-mono text-[11px] leading-5 text-slate-300">
+            {yaml}
+          </pre>
+        )}
+      </div>
+
+      {/* 顶部渐变：已向下滚动时显示 */}
+      {!atTop && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10 bg-linear-to-b from-[#0d1117] to-transparent" />
+      )}
+      {/* 底部渐变：未到底时显示，提示还有内容 */}
+      {!atBottom && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-10 bg-linear-to-t from-[#0d1117] to-transparent" />
+      )}
+    </div>
   )
 }
 
@@ -339,16 +300,16 @@ export function RolloutExplainerPage() {
   }, [rawList])
 
   const [selectedKey, setSelectedKey] = useState(() => {
-    if (typeof window === "undefined") {
+    if (typeof globalThis.window === "undefined") {
       return ""
     }
-    return new URLSearchParams(window.location.search).get("rollout") ?? ""
+    return new URLSearchParams(globalThis.location.search).get("rollout") ?? ""
   })
   const [activeTab, setActiveTab] = useState<ExplainerTabValue>(() => {
-    if (typeof window === "undefined") {
+    if (typeof globalThis.window === "undefined") {
       return "canary"
     }
-    return resolveTabValue(new URLSearchParams(window.location.search).get("tab"))
+    return resolveTabValue(new URLSearchParams(globalThis.location.search).get("tab"))
   })
   const [specExpanded, setSpecExpanded] = useState(false)
 
@@ -370,10 +331,10 @@ export function RolloutExplainerPage() {
   const selectedName = selectedRollout?.name ?? ""
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (typeof globalThis.window === "undefined") {
       return
     }
-    const url = new URL(window.location.href)
+    const url = new URL(globalThis.location.href)
     if (activeTab === "canary") {
       url.searchParams.delete("tab")
     } else {
@@ -385,9 +346,9 @@ export function RolloutExplainerPage() {
       url.searchParams.delete("rollout")
     }
     const next = `${url.pathname}${url.search}${url.hash}`
-    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    const current = `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`
     if (next !== current) {
-      window.history.replaceState(window.history.state, "", next)
+      globalThis.history.replaceState(globalThis.history.state, "", next)
     }
   }, [activeTab, resolvedSelectedKey])
 
@@ -398,6 +359,16 @@ export function RolloutExplainerPage() {
     enabled: watchEnabled,
   })
   const refreshInterval = watchState.fallbackPolling ? 10000 : 0
+  const watchModeLabel = watchEnabled
+    ? watchState.fallbackPolling
+      ? "Polling fallback（降级轮询）"
+      : "Watch stream（实时流）"
+    : "Watch disabled（未启用）"
+  const watchSourceHint = watchEnabled
+    ? watchState.fallbackPolling
+      ? "数据来源：Polling fallback"
+      : "数据来源：Watch stream"
+    : "数据来源：Polling"
 
   const { data: rawDetail, isLoading: isDetailLoading } = useRollout(selectedNamespace, selectedName, {
     refreshInterval,
@@ -415,7 +386,7 @@ export function RolloutExplainerPage() {
       return ""
     }
     try {
-      return toYaml(detail.rawSpec)
+      return dump(detail.rawSpec, { indent: 2, lineWidth: -1, noRefs: true })
     } catch {
       return ""
     }
@@ -479,10 +450,10 @@ export function RolloutExplainerPage() {
 
     return undefined
   }, [podsData])
-  const canaryDiagramModel = useMemo(() => buildCanaryDiagram(null), [])
-  const abTestDiagramModel = useMemo(() => buildABTestDiagram(null), [])
-  const triggerDiagramModel = useMemo(() => buildTriggerDiagram(), [])
-  const edgeCaseDiagramModel = useMemo(() => buildEdgeCaseDiagram(), [])
+  const canaryDiagramModel = CANARY_DIAGRAM_MODEL
+  const abTestDiagramModel = AB_TEST_DIAGRAM_MODEL
+  const triggerDiagramModel = TRIGGER_DIAGRAM_MODEL
+  const edgeCaseDiagramModel = EDGE_CASE_DIAGRAM_MODEL
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-muted/40">
       <header className="shrink-0 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
@@ -644,10 +615,10 @@ export function RolloutExplainerPage() {
                 </CardHeader>
                 <CardContent className="space-y-3 px-4">
                   {isListLoading ? (
-                    <div role="status" aria-live="polite" className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <output aria-live="polite" className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       正在加载 Rollout 列表…
-                    </div>
+                    </output>
                   ) : allRollouts.length === 0 ? (
                     <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
                       当前命名空间没有 Rollout 资源，无法进行实时映射。
@@ -669,11 +640,7 @@ export function RolloutExplainerPage() {
 
                       <div className="flex flex-wrap items-center gap-2 text-xs">
                         <Badge variant={watchState.fallbackPolling ? "outline" : "secondary"}>
-                          {watchEnabled
-                            ? watchState.fallbackPolling
-                              ? "Polling fallback（降级轮询）"
-                              : "Watch stream（实时流）"
-                            : "Watch disabled（未启用）"}
+                          {watchModeLabel}
                         </Badge>
                         {watchState.lastError && watchState.fallbackPolling && (
                           <span className="text-muted-foreground">{watchState.lastError}</span>
@@ -682,11 +649,7 @@ export function RolloutExplainerPage() {
 
                       {!!selectedName && (
                         <>
-                          {!rolloutSpecText ? (
-                            <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                              当前没有可展示的 spec 数据。
-                            </div>
-                          ) : (
+                          {rolloutSpecText ? (
                             <Collapsible open={specExpanded} onOpenChange={setSpecExpanded}>
                               <div className="mb-1 mt-1 flex flex-wrap items-center justify-between gap-2">
                                 <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -710,6 +673,10 @@ export function RolloutExplainerPage() {
                                 <YamlHighlightedBlock yaml={rolloutSpecText} />
                               </CollapsibleContent>
                             </Collapsible>
+                          ) : (
+                            <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                              当前没有可展示的 spec 数据。
+                            </div>
                           )}
                         </>
                       )}
@@ -727,13 +694,7 @@ export function RolloutExplainerPage() {
                 actualCanaryPods={livePodCounts.canaryPods}
                 title="Live K8s 资源拓扑图"
                 description="针对当前选中 Rollout，按真实副本数与阶段状态展示资源关系。"
-                sourceHint={
-                  watchEnabled
-                    ? watchState.fallbackPolling
-                      ? "数据来源：Polling fallback"
-                      : "数据来源：Watch stream"
-                    : "数据来源：Polling"
-                }
+                sourceHint={watchSourceHint}
               />
 
               {selectedName && (
@@ -769,16 +730,14 @@ export function RolloutExplainerPage() {
                     </CardHeader>
                     <CardContent className="space-y-3 px-4">
                       {currentMappedStep ? (
-                        <>
-                          <FlowStepCard
-                            step={currentMappedStep}
-                            active
-                            index={Math.max(
-                              0,
-                              liveStepCatalog.findIndex((step) => step.id === currentMappedStep.id)
-                            )}
-                          />
-                        </>
+                        <FlowStepCard
+                          step={currentMappedStep}
+                          active
+                          index={Math.max(
+                            0,
+                            liveStepCatalog.findIndex((step) => step.id === currentMappedStep.id)
+                          )}
+                        />
                       ) : (
                         <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
                           当前状态暂无法映射到已定义步骤，请检查 Rollout 状态字段或等待控制器推进。

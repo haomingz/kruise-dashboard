@@ -125,3 +125,12 @@
     overflow-x: hidden;
   }
 }
+
+/* 隐藏 scrollbar 但保留滚动能力 */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
