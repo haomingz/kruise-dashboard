@@ -50,6 +50,7 @@ import {
   inferExplainerStrategy,
   mapSnapshotToExplainerStep,
   triggerRules,
+  workloadDetectionAndControllerInteraction,
   type ExplainerStep,
   type K8sResourceOp,
   type SourceRef,
@@ -100,7 +101,7 @@ function YamlHighlightedBlock({ yaml }: Readonly<{ yaml: string }>) {
 
   useEffect(() => {
     if (!yaml) {
-      setHtml("")
+      void Promise.resolve().then(() => setHtml(""))
       return
     }
     let cancelled = false
@@ -128,8 +129,6 @@ function YamlHighlightedBlock({ yaml }: Readonly<{ yaml: string }>) {
         {html ? (
           <div
             className="[&>pre]:m-0! [&>pre]:px-3 [&>pre]:py-2 [&_code]:font-mono [&_code]:text-[11px] [&_code]:leading-5"
-            // shiki 生成的 HTML 来自受控的 YAML 序列化输出，内容安全
-            // eslint-disable-next-line react/no-danger
             dangerouslySetInnerHTML={{ __html: html }}
           />
         ) : (
@@ -300,13 +299,13 @@ export function RolloutExplainerPage() {
   }, [rawList])
 
   const [selectedKey, setSelectedKey] = useState(() => {
-    if (typeof globalThis.window === "undefined") {
+    if (globalThis.window === undefined) {
       return ""
     }
     return new URLSearchParams(globalThis.location.search).get("rollout") ?? ""
   })
   const [activeTab, setActiveTab] = useState<ExplainerTabValue>(() => {
-    if (typeof globalThis.window === "undefined") {
+    if (globalThis.window === undefined) {
       return "canary"
     }
     return resolveTabValue(new URLSearchParams(globalThis.location.search).get("tab"))
@@ -331,7 +330,7 @@ export function RolloutExplainerPage() {
   const selectedName = selectedRollout?.name ?? ""
 
   useEffect(() => {
-    if (typeof globalThis.window === "undefined") {
+    if (globalThis.window === undefined) {
       return
     }
     const url = new URL(globalThis.location.href)
@@ -359,16 +358,14 @@ export function RolloutExplainerPage() {
     enabled: watchEnabled,
   })
   const refreshInterval = watchState.fallbackPolling ? 10000 : 0
-  const watchModeLabel = watchEnabled
-    ? watchState.fallbackPolling
-      ? "Polling fallback（降级轮询）"
-      : "Watch stream（实时流）"
-    : "Watch disabled（未启用）"
-  const watchSourceHint = watchEnabled
-    ? watchState.fallbackPolling
-      ? "数据来源：Polling fallback"
-      : "数据来源：Watch stream"
-    : "数据来源：Polling"
+  const watchModeLabel = (() => {
+    if (!watchEnabled) return "Watch disabled（未启用）"
+    return watchState.fallbackPolling ? "Polling fallback（降级轮询）" : "Watch stream（实时流）"
+  })()
+  const watchSourceHint = (() => {
+    if (!watchEnabled) return "数据来源：Polling"
+    return watchState.fallbackPolling ? "数据来源：Polling fallback" : "数据来源：Watch stream"
+  })()
 
   const { data: rawDetail, isLoading: isDetailLoading } = useRollout(selectedNamespace, selectedName, {
     refreshInterval,
@@ -428,27 +425,17 @@ export function RolloutExplainerPage() {
     }
   }, [podsData])
   const desiredWorkloadReplicas = useMemo(() => {
-    const workloadRef = (podsData?.workloadRef as Record<string, unknown> | null | undefined) ?? undefined
-    if (!workloadRef) {
+    const workloadRef = podsData?.workloadRef
+    if (!workloadRef || typeof workloadRef !== "object") {
       return undefined
     }
-
-    const spec = (workloadRef.spec as Record<string, unknown> | undefined) ?? undefined
-    const status = (workloadRef.status as Record<string, unknown> | undefined) ?? undefined
-
-    const specReplicas =
-      typeof spec?.replicas === "number" && Number.isFinite(spec.replicas)
-        ? Math.max(0, Math.round(spec.replicas))
-        : undefined
-    if (specReplicas !== undefined) {
-      return specReplicas
+    const getReplicas = (obj: unknown): number | undefined => {
+      if (obj === null || typeof obj !== "object") return undefined
+      const replicas = (obj as Record<string, unknown>).replicas
+      if (typeof replicas !== "number" || !Number.isFinite(replicas)) return undefined
+      return Math.max(0, Math.round(replicas))
     }
-
-    if (typeof status?.replicas === "number" && Number.isFinite(status.replicas)) {
-      return Math.max(0, Math.round(status.replicas))
-    }
-
-    return undefined
+    return getReplicas(workloadRef.spec) ?? getReplicas(workloadRef.status)
   }, [podsData])
   const canaryDiagramModel = CANARY_DIAGRAM_MODEL
   const abTestDiagramModel = AB_TEST_DIAGRAM_MODEL
@@ -556,6 +543,33 @@ export function RolloutExplainerPage() {
 
               <Card className="gap-3 py-4">
                 <CardHeader className="px-4 pb-1">
+                  <CardTitle className="text-base sm:text-lg">{workloadDetectionAndControllerInteraction.title}</CardTitle>
+                  <CardDescription>
+                    说明 Workload 变更如何被检测到，以及如何与 Rollout controller 发生交互。
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 px-4">
+                  {workloadDetectionAndControllerInteraction.sections.map((section) => (
+                    <div key={section.id} className="space-y-2">
+                      <h4 className="text-sm font-semibold text-slate-800 sm:text-base">{section.title}</h4>
+                      <ul className="space-y-2">
+                        {section.items.map((item) => (
+                          <li key={item.label} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                            <p className="text-xs font-medium text-slate-600 sm:text-sm">{item.label}</p>
+                            <p className="mt-1 text-xs leading-relaxed text-slate-700 sm:text-sm">{item.content}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                  <div className="pt-2">
+                    <SourceLinks refs={workloadDetectionAndControllerInteraction.sourceRefs} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="gap-3 py-4">
+                <CardHeader className="px-4 pb-1">
                   <CardTitle className="text-base sm:text-lg">Trigger 规则</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 px-4">
@@ -614,74 +628,82 @@ export function RolloutExplainerPage() {
                   <CardDescription>从当前命名空间对象中选择一个 Rollout 进行实况映射。</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3 px-4">
-                  {isListLoading ? (
-                    <output aria-live="polite" className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      正在加载 Rollout 列表…
-                    </output>
-                  ) : allRollouts.length === 0 ? (
-                    <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                      当前命名空间没有 Rollout 资源，无法进行实时映射。
-                    </div>
-                  ) : (
-                    <>
-                      <Select value={resolvedSelectedKey || undefined} onValueChange={setSelectedKey}>
-                        <SelectTrigger id="live-rollout-select" aria-label="选择 Rollout 对象" className="w-full sm:w-[420px]">
-                          <SelectValue placeholder="选择一个 Rollout…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {allRollouts.map((rollout) => (
-                            <SelectItem key={rolloutKey(rollout)} value={rolloutKey(rollout)}>
-                              {rollout.namespace}/{rollout.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                  {(() => {
+                    if (isListLoading) {
+                      return (
+                        <output aria-live="polite" className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          正在加载 Rollout 列表…
+                        </output>
+                      )
+                    }
+                    if (allRollouts.length === 0) {
+                      return (
+                        <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                          当前命名空间没有 Rollout 资源，无法进行实时映射。
+                        </div>
+                      )
+                    }
+                    return (
+                      <>
+                        <Select value={resolvedSelectedKey || undefined} onValueChange={setSelectedKey}>
+                          <SelectTrigger id="live-rollout-select" aria-label="选择 Rollout 对象" className="w-full sm:w-[420px]">
+                            <SelectValue placeholder="选择一个 Rollout…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {allRollouts.map((rollout) => (
+                              <SelectItem key={rolloutKey(rollout)} value={rolloutKey(rollout)}>
+                                {rollout.namespace}/{rollout.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
 
-                      <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <Badge variant={watchState.fallbackPolling ? "outline" : "secondary"}>
-                          {watchModeLabel}
-                        </Badge>
-                        {watchState.lastError && watchState.fallbackPolling && (
-                          <span className="text-muted-foreground">{watchState.lastError}</span>
-                        )}
-                      </div>
-
-                      {!!selectedName && (
-                        <>
-                          {rolloutSpecText ? (
-                            <Collapsible open={specExpanded} onOpenChange={setSpecExpanded}>
-                              <div className="mb-1 mt-1 flex flex-wrap items-center justify-between gap-2">
-                                <div className="flex flex-wrap items-center gap-2 text-xs">
-                                  <Badge variant="outline" className="gap-1">
-                                    <Code2 className="h-3 w-3" />
-                                    Rollout Spec（YAML）
-                                  </Badge>
-                                  <Badge variant="outline">workload: {detail?.workloadRefKind}/{detail?.workloadRef}</Badge>
-                                  <Badge variant="outline">steps: {detail?.steps.length ?? 0}</Badge>
-                                  <Badge variant="outline">paused: {String(detail?.paused ?? false)}</Badge>
-                                  <Badge variant="outline">disabled: {String(detail?.disabled ?? false)}</Badge>
-                                </div>
-                                <CollapsibleTrigger asChild>
-                                  <Button variant="outline" size="sm" className="gap-1.5">
-                                    {specExpanded ? "收起 Spec YAML" : "展开 Spec YAML"}
-                                    <ChevronDown className={cn("h-4 w-4 transition-transform", specExpanded && "rotate-180")} />
-                                  </Button>
-                                </CollapsibleTrigger>
-                              </div>
-                              <CollapsibleContent>
-                                <YamlHighlightedBlock yaml={rolloutSpecText} />
-                              </CollapsibleContent>
-                            </Collapsible>
-                          ) : (
-                            <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                              当前没有可展示的 spec 数据。
-                            </div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <Badge variant={watchState.fallbackPolling ? "outline" : "secondary"}>
+                            {watchModeLabel}
+                          </Badge>
+                          {watchState.lastError && watchState.fallbackPolling && (
+                            <span className="text-muted-foreground">{watchState.lastError}</span>
                           )}
-                        </>
-                      )}
-                    </>
-                  )}
+                        </div>
+
+                        {!!selectedName && (
+                          <>
+                            {rolloutSpecText ? (
+                              <Collapsible open={specExpanded} onOpenChange={setSpecExpanded}>
+                                <div className="mb-1 mt-1 flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                                    <Badge variant="outline" className="gap-1">
+                                      <Code2 className="h-3 w-3" />
+                                      Rollout Spec（YAML）
+                                    </Badge>
+                                    <Badge variant="outline">workload: {detail?.workloadRefKind}/{detail?.workloadRef}</Badge>
+                                    <Badge variant="outline">steps: {detail?.steps.length ?? 0}</Badge>
+                                    <Badge variant="outline">paused: {String(detail?.paused ?? false)}</Badge>
+                                    <Badge variant="outline">disabled: {String(detail?.disabled ?? false)}</Badge>
+                                  </div>
+                                  <CollapsibleTrigger asChild>
+                                    <Button variant="outline" size="sm" className="gap-1.5">
+                                      {specExpanded ? "收起 Spec YAML" : "展开 Spec YAML"}
+                                      <ChevronDown className={cn("h-4 w-4 transition-transform", specExpanded && "rotate-180")} />
+                                    </Button>
+                                  </CollapsibleTrigger>
+                                </div>
+                                <CollapsibleContent>
+                                  <YamlHighlightedBlock yaml={rolloutSpecText} />
+                                </CollapsibleContent>
+                              </Collapsible>
+                            ) : (
+                              <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                                当前没有可展示的 spec 数据。
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </>
+                    )
+                  })()}
                 </CardContent>
               </Card>
 

@@ -508,6 +508,67 @@ export const abTestExplainerSteps: ExplainerStep[] = [
   },
 ]
 
+/** Workload 变更检测与 Rollout Controller 交互的详细说明（用于流程解读页面） */
+export const workloadDetectionAndControllerInteraction = {
+  title: "Workload 变更检测与 Rollout Controller 交互",
+  sections: [
+    {
+      id: "webhook-registration",
+      title: "Mutating Webhook 的注册与触发",
+      items: [
+        {
+          label: "API Server 为何会调用 Mutating Webhook",
+          content:
+            "安装 Kruise Rollout（如 helm install kruise-rollout）时，会创建 MutatingWebhookConfiguration 资源并注册到集群。该配置声明：当 API Server 收到对 Deployment、CloneSet、DaemonSet、StatefulSet 等资源的 CREATE/UPDATE 请求时，在持久化到 etcd 之前，先向 Webhook 服务（kruise-rollout-webhook-service）发起准入请求。API Server 根据 MutatingWebhookConfiguration 的 rules 与 objectSelector 判断是否调用；若匹配，则把请求转发给 Webhook，收到 patch 或 allow 后再完成持久化。",
+        },
+      ],
+    },
+    {
+      id: "detection-path",
+      title: "Workload 变更如何被检测到",
+      items: [
+        {
+          label: "路径 1：Mutating Webhook（准入阶段）",
+          content:
+            "用户执行 kubectl apply / patch 修改 Workload 时，API Server 在持久化前会调用 Workload Mutating Webhook。Webhook 在 workload_update_handler.go 中判断：① 是否匹配 webhook 规则；② 是否满足进入 rollout progressing 的条件（PodTemplateSpec 变化、或 rollout-id 变化；TrafficRouting 场景还要求 Workload 仅有一种版本 Pod）。若满足，则 patch Workload：添加 rollouts.kruise.io/in-progressing annotation、设置 spec.paused=true，将滚动更新控制权交给 Rollout controller。",
+        },
+        {
+          label: "路径 2：Controller Watch（Informer 事件）",
+          content:
+            "Rollout controller 通过 controller-runtime 的 Watch 机制，监听 Deployment、CloneSet、DaemonSet、StatefulSet 等 Workload 的 Create/Update/Delete 事件。rollout_event_handler.go 中的 enqueueRequestForWorkload 实现 handler.EventHandler：收到 Workload 事件后，通过 getRolloutForWorkload 根据 spec.workloadRef 查找匹配的 Rollout；若找到，则 q.Add(reconcile.Request) 将该 Rollout 入队。同理，enqueueRequestForBatchRelease 监听 BatchRelease 变化，也会触发对应 Rollout 的 reconcile。",
+        },
+        {
+          label: "两条路径的配合",
+          content:
+            "Webhook 在准入阶段修改 Workload 并持久化 → API Server 写入 etcd → Informer 收到 watch 事件 → enqueueRequestForWorkload 将 Rollout 入队。因此一次用户操作会同时经过 Webhook（标记 in-progressing）和 Controller Watch（触发 reconcile）。",
+        },
+      ],
+    },
+    {
+      id: "controller-interaction",
+      title: "与 Rollout Controller 的交互",
+      items: [
+        {
+          label: "入队与 Reconcile 循环",
+          content:
+            "Workload/BatchRelease 事件经 EventHandler 转换为 reconcile.Request（Rollout 的 Namespace/Name），加入 controller-runtime 的 workqueue。Reconcile 循环从队列取出 Request，调用 Rollout 的 Reconcile 函数，读取 Rollout、Workload、BatchRelease、Service/Ingress 等状态，推进状态机（StepInit → StepUpgrade → StepTrafficRouting → …）。",
+        },
+        {
+          label: "observedRolloutID 与变更可见性",
+          content:
+            "Rollout status.canaryStatus.observedRolloutID 对应 Workload 的 rollouts.kruise.io/rollout-id annotation。两者相等表示 controller 已观察到该次 Workload 变更；可用于判断「当前变更是否已被 Rollout 接管」。",
+        },
+      ],
+    },
+  ],
+  sourceRefs: [
+    { label: "源码: workload mutating webhook", url: SRC_WEBHOOK_WORKLOAD },
+    { label: "源码: rollout event handler (enqueueRequestForWorkload)", url: SRC_ROLLOUT_EVENT },
+    { label: "文档: API observedRolloutID", url: DOC_API },
+    { label: "文档: Kruise Rollout 安装", url: "https://openkruise.io/rollouts/installation" },
+  ],
+}
+
 export const triggerRules: TriggerRule[] = [
   {
     id: "trigger-workload-revision",
